@@ -1,0 +1,38 @@
+# Claude — machine-specific, never commit
+# Template at .claude/settings.local.json.example
+.claude/settings.local.json
+
+# Personal project preferences (create manually alongside CLAUDE.md)
+CLAUDE.local.md
+
+# Bash audit log (append-only, machine-specific)
+.claude/bash.log
+
+# OS
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.local
+.env.*.local
+
+# Build outputs
+dist/
+build/
+out/
+.next/
+.nuxt/
+
+# Rust
+target/
+
+# ML model weights/checkpoints
+ml/models/
+# Cargo.lock: commit it for binaries, gitignore it for libraries — see https://doc.rust-lang.org/cargo/faq.html#is-it-advisable-to-commit-cargo-lock-and-when
