@@ -33,6 +33,14 @@ out/
 # Rust
 target/
 
+# Python
+.venv/
+__pycache__/
+*.pyc
+
 # ML model weights/checkpoints
 ml/models/
+
+# Derived sanity-test imagery (regenerable, keeps binary bloat out of git)
+ml/depth/samples/
 # Cargo.lock: commit it for binaries, gitignore it for libraries — see https://doc.rust-lang.org/cargo/faq.html#is-it-advisable-to-commit-cargo-lock-and-when
