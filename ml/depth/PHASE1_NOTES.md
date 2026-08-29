@@ -43,3 +43,7 @@ def estimate_relative_depth_batch(images: list[PIL.Image.Image]) -> list[PIL.Ima
 - Output: PIL image (mode `L`), same dimensions as input, uint8 relative depth (0=far, 255=near per observed convention).
 - No absolute/metric scale, no SRTM, no semantic priors, no calibration logic — out of scope until Phase 4, per the PRD.
 - Any change to this signature is a breaking change for downstream phases; bump and announce rather than editing silently.
+
+## Known PRD/practice mismatch
+
+`docs/depthwizard.md` §7.0 (Data Access) says Bhuvan/Cartosat samples should be "a fixed small sample set committed to the repo." Current practice keeps `ml/depth/samples/` gitignored (explicit project decision — no imagery binaries in git). Left as gitignored for now; revisit if the PRD's wording is meant literally rather than aspirationally.
