@@ -1,12 +1,10 @@
-# Claude — machine-specific, never commit
-# Template at .claude/settings.local.json.example
-.claude/settings.local.json
+# Claude — never commit any of this
+.claude/
+CLAUDE.md
+ONBOARDING.md
 
 # Personal project preferences (create manually alongside CLAUDE.md)
 CLAUDE.local.md
-
-# Bash audit log (append-only, machine-specific)
-.claude/bash.log
 
 # OS
 .DS_Store
