@@ -43,3 +43,5 @@ ml/models/
 ml/depth/samples/
 # Cargo.lock: commit it for binaries, gitignore it for libraries — see https://doc.rust-lang.org/cargo/faq.html#is-it-advisable-to-commit-cargo-lock-and-when
 data/
+# ...but frontend/src/data/ is a real source path (validation_report.json, PRD §15/§20.2), not scratch data
+!frontend/src/data/
