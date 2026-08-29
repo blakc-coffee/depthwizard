@@ -1,0 +1,28 @@
+# API + worker dependencies (PRD §5). The worker image additionally installs
+# ml/requirements.txt; this file alone must stay light enough for the API
+# image, which must NOT carry heavy ML dependencies (PRD §26/§9.10 B6).
+#
+# Loose (>=) bounds rather than exact pins — lock with `pip freeze` once
+# installed in a real environment rather than trusting hand-guessed pins.
+
+fastapi>=0.115
+uvicorn[standard]>=0.34
+python-multipart>=0.0.20
+
+sqlalchemy>=2.0
+psycopg[binary]>=3.2
+alembic>=1.14
+
+celery[redis]>=5.4
+
+pydantic>=2.10
+pydantic-settings>=2.7
+python-dotenv>=1.0
+
+pyjwt>=2.10
+pillow>=11.0
+supabase>=2.11
+
+# tests
+pytest>=8.3
+httpx>=0.28
