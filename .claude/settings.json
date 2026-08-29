@@ -1,0 +1,105 @@
+{
+  "model": "claude-sonnet-5",
+  "statusLine": {
+    "type": "command",
+    "command": "bash \"$(case \"$CLAUDE_PROJECT_DIR\" in (/mnt/*) printf '%s' \"$CLAUDE_PROJECT_DIR\";; (*) wslpath -u \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || printf '%s' \"$CLAUDE_PROJECT_DIR\";; esac)/.claude/hooks/statusline.sh\"",
+    "padding": 1
+  },
+  "permissions": {
+    "allow": [
+      "Bash(rtk *)",
+      "Bash(gh *)",
+      "Bash(git status)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(git branch *)",
+      "Bash(git checkout *)",
+      "Bash(git fetch *)",
+      "Bash(git stash *)",
+      "Bash(git merge *)",
+      "Bash(npm run *)",
+      "Bash(npx ctx7 *)"
+    ],
+    "deny": [
+      "Bash(git push --force*)",
+      "Bash(git reset --hard*)",
+      "Bash(git clean *)",
+      "Bash(rm -rf *)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["-c", "bash \"$(case \"$CLAUDE_PROJECT_DIR\" in (/mnt/*) printf '%s' \"$CLAUDE_PROJECT_DIR\";; (*) wslpath -u \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || printf '%s' \"$CLAUDE_PROJECT_DIR\";; esac)/.claude/hooks/session-start.sh\""]
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "idle_prompt|permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["-c", "bash \"$(case \"$CLAUDE_PROJECT_DIR\" in (/mnt/*) printf '%s' \"$CLAUDE_PROJECT_DIR\";; (*) wslpath -u \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || printf '%s' \"$CLAUDE_PROJECT_DIR\";; esac)/.claude/hooks/notify.sh\""],
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["-c", "bash \"$(case \"$CLAUDE_PROJECT_DIR\" in (/mnt/*) printf '%s' \"$CLAUDE_PROJECT_DIR\";; (*) wslpath -u \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || printf '%s' \"$CLAUDE_PROJECT_DIR\";; esac)/.claude/hooks/log-bash.sh\""]
+          },
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["-c", "bash \"$(case \"$CLAUDE_PROJECT_DIR\" in (/mnt/*) printf '%s' \"$CLAUDE_PROJECT_DIR\";; (*) wslpath -u \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || printf '%s' \"$CLAUDE_PROJECT_DIR\";; esac)/.claude/hooks/pre-deploy-guard.sh\""],
+            "timeout": 300000
+          },
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["-c", "bash \"$(case \"$CLAUDE_PROJECT_DIR\" in (/mnt/*) printf '%s' \"$CLAUDE_PROJECT_DIR\";; (*) wslpath -u \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || printf '%s' \"$CLAUDE_PROJECT_DIR\";; esac)/.claude/hooks/git-guard.sh\""]
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["-c", "bash \"$(case \"$CLAUDE_PROJECT_DIR\" in (/mnt/*) printf '%s' \"$CLAUDE_PROJECT_DIR\";; (*) wslpath -u \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || printf '%s' \"$CLAUDE_PROJECT_DIR\";; esac)/.claude/hooks/privacy-guard.sh\""]
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash",
+            "args": ["-c", "bash \"$(case \"$CLAUDE_PROJECT_DIR\" in (/mnt/*) printf '%s' \"$CLAUDE_PROJECT_DIR\";; (*) wslpath -u \"$CLAUDE_PROJECT_DIR\" 2>/dev/null || printf '%s' \"$CLAUDE_PROJECT_DIR\";; esac)/.claude/hooks/auto-format.sh\""],
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
