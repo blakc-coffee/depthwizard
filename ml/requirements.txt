@@ -1,1 +1,7 @@
 torch==2.13.0
+transformers==5.16.1
+pillow==12.3.0
+requests==2.34.2
+numpy==2.5.2
+datasets==5.0.1
+rasterio==1.5.1
