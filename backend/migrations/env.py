@@ -23,7 +23,7 @@ target_metadata = Base.metadata
 
 # Always read the URL from app settings (env-driven), never a static value
 # in alembic.ini — one source of truth for the connection string.
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+config.set_main_option("sqlalchemy.url", get_settings().database_url.get_secret_value())
 
 
 def run_migrations_offline() -> None:

@@ -13,7 +13,7 @@ settings = get_settings()
 
 celery_app = Celery(
     "depthwizard",
-    broker=settings.redis_url,
+    broker=settings.redis_url.get_secret_value(),
     backend=None,  # no result backend — Postgres is the source of truth, not Celery/Redis
 )
 

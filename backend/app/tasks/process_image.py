@@ -5,6 +5,7 @@ Owner: Backend Engineer B. See PRD §9.
 
 from __future__ import annotations
 
+import logging
 import shutil
 import tempfile
 import uuid
@@ -19,6 +20,8 @@ from app.db.session import SessionLocal
 from app.services import storage
 from app.services.jobs import JobService
 from integration.pipeline_runner import run_pipeline
+
+logger = logging.getLogger("depthwizard.worker")
 
 # Coarse stage reporting: ml/pipeline.py is currently one synchronous call
 # with no progress callback, so intermediate stages (estimating_depth,
@@ -135,11 +138,17 @@ def process_image(self, job_id: str) -> None:
     except _PipelineContractError as exc:
         jobs.set_failed(job_uuid, error_code=ErrorCode.ML_INFERENCE_FAILED, error_message=str(exc))
 
-    except Exception as exc:  # noqa: BLE001 — top-level task boundary; never leak a raw traceback to job state
+    except Exception:  # noqa: BLE001 — top-level task boundary
+        # Log the real exception server-side (redacted by core/logging.py's
+        # formatter) but never store/return the raw exception text as job
+        # state — str(exc) on an unexpected exception could in principle
+        # echo back internal details a caller shouldn't see. The client only
+        # ever gets the generic message below.
+        logger.exception("Unexpected pipeline failure for job %s", job_id)
         jobs.set_failed(
             job_uuid,
             error_code=ErrorCode.ML_INFERENCE_FAILED,
-            error_message=str(exc) or "Pipeline processing failed.",
+            error_message="Pipeline processing failed unexpectedly.",
         )
 
     finally:

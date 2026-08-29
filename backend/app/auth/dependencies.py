@@ -36,7 +36,7 @@ def get_current_user_id(
     try:
         payload = jwt.decode(
             credentials.credentials,
-            settings.supabase_jwt_secret,
+            settings.supabase_jwt_secret.get_secret_value(),
             algorithms=["HS256"],
             audience="authenticated",
         )

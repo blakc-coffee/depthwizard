@@ -1,0 +1,28 @@
+# Defense-in-depth: neither backend/Dockerfile nor worker/Dockerfile ever
+# COPY these, but excluding them from the build context means a future
+# careless `COPY . .` can't bake secrets or bloat into an image layer.
+
+.git/
+.gitignore
+.gitattributes
+.mcp.json
+
+.env
+.env.*
+!.env.example
+
+.claude/
+CLAUDE.md
+ONBOARDING.md
+CLAUDE.local.md
+
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+.DS_Store
+
+# Neither image needs the frontend or downloaded model weights.
+frontend/
+ml/models/
+node_modules/

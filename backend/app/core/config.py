@@ -7,22 +7,28 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Supabase (PRD §6/§9.2)
+    # Supabase (PRD §6/§9.2). SecretStr so an accidental repr()/print() of
+    # `settings` (a debugger, a stray log line, a future bug) shows
+    # `SecretStr('**********')` instead of the real value — call
+    # `.get_secret_value()` explicitly at the one call site that needs it.
     supabase_url: str = ""
-    supabase_jwt_secret: str = ""
-    supabase_service_role_key: str = ""
+    supabase_jwt_secret: SecretStr = SecretStr("")
+    supabase_service_role_key: SecretStr = SecretStr("")
 
-    # Database — Postgres is the source of truth for job state (PRD §2)
-    database_url: str = "postgresql+psycopg://depthwizard:depthwizard@localhost:5432/depthwizard"
+    # Database — Postgres is the source of truth for job state (PRD §2).
+    # SecretStr: the DSN embeds a password.
+    database_url: SecretStr = SecretStr("postgresql+psycopg://depthwizard:depthwizard@localhost:5432/depthwizard")
 
-    # Redis — Celery broker only, never job status (PRD §2)
-    redis_url: str = "redis://localhost:6379/0"
+    # Redis — Celery broker only, never job status (PRD §2).
+    # SecretStr: the DSN can embed a password (e.g. Upstash in prod).
+    redis_url: SecretStr = SecretStr("redis://localhost:6379/0")
 
     # Storage — one private bucket, prefixed by inputs/staging/outputs/compares (PRD §7)
     storage_bucket: str = "depthwizard"
