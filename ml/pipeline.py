@@ -1,19 +1,21 @@
 """Top-level ML pipeline orchestrator — image in, PipelineResult out.
 
 Implements the Backend <-> ML contract in docs/depthwizard.md Section 9.6.
-Depth estimation, calibration, DSM packaging, and validation (Phase 4/5) are
-not yet built — per the pure-function design principle in Section 4, this
-returns a partial, honest PipelineResult (real texture_path, everything else
-None/empty + a warning) rather than fabricating those fields, so Backend/
-Frontend can build against the contract now and get real output swapped in
-per-field as later phases land.
+Stage A (relative depth, Phase 1) is wired in; calibration/fusion, DSM
+packaging, and validation (Phase 4/5) are not yet built. Per the honesty
+rule in Section 1 ("never claim absolute metric accuracy when the pipeline
+only produced a relative result"), output_type is always "relative_dsm"
+until Phase 4's calibration lands — a georeferenced input alone is not
+sufficient to claim an absolute DSM.
 """
 
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import rasterio
+from PIL import Image
 
+from depth.backbone import estimate_relative_depth
 from utils.texture_export import export_texture
 
 GEOTIFF_EXTENSIONS = {".tif", ".tiff"}
@@ -41,6 +43,7 @@ def _is_georeferenced(input_path: Path) -> bool:
 def run_pipeline(input_path: str | Path, output_dir: str | Path) -> PipelineResult:
     """image in -> PipelineResult out. See Section 9.6 for the frozen contract."""
     input_path = Path(input_path)
+    output_dir = Path(output_dir)
     georeferenced = _is_georeferenced(input_path)
 
     # Texture export runs for every branch — the viewer needs a browser-
@@ -48,13 +51,36 @@ def run_pipeline(input_path: str | Path, output_dir: str | Path) -> PipelineResu
     # or relative (Section 9.5: texture_url is always present).
     texture_path = export_texture(input_path, output_dir)
 
+    # Stage A — the texture is already a normalized, browser-viewable RGB
+    # image at heightmap resolution for both PNG/JPG and GeoTIFF inputs, so
+    # running depth on it (rather than the raw upload) keeps texture and
+    # heightmap pixel-aligned for free (§9.8).
+    texture_image = Image.open(texture_path).convert("RGB")
+    depth_map = estimate_relative_depth(texture_image)  # mode "L", same size as input
+
+    heightmap_path = output_dir / f"{input_path.stem}_heightmap.png"
+    heightmap = Image.merge("LA", (depth_map, Image.new("L", depth_map.size, 255)))
+    heightmap.save(heightmap_path)
+
+    warning = (
+        "Calibration stage (Phase 4) is not yet implemented — output is "
+        "uncalibrated relative depth, not absolute height, even though the "
+        "input is georeferenced."
+        if georeferenced
+        else "Calibration/cleanup stage (Phase 4) is not yet implemented — "
+        "output is raw relative depth."
+    )
+
     return PipelineResult(
-        output_type="absolute_dsm" if georeferenced else "relative_dsm",
-        heightmap_path=None,
+        output_type="relative_dsm",
+        heightmap_path=str(heightmap_path),
         texture_path=str(texture_path),
-        metadata={"height_units": "m" if georeferenced else "relative"},
-        warnings=[
-            "Depth estimation and calibration stages are not yet implemented "
-            "(Phase 4/5) — only texture_path is real output from this call."
-        ],
+        metadata={
+            "height_units": "relative",
+            "min_height": 0,
+            "max_height": 255,
+            "width": depth_map.width,
+            "height": depth_map.height,
+        },
+        warnings=[warning],
     )
