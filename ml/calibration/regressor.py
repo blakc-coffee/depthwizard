@@ -37,6 +37,7 @@ Frozen interface per Phase 4 specification.
 
 from __future__ import annotations
 
+import copy
 import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -57,9 +58,21 @@ class RegressorConfig:
     learning_rate: float = 1e-3
     weight_decay: float = 1e-4
     batch_size: int = 32
-    epochs: int = 25
+    epochs: int = 200
     loss_type: str = "smooth_l1"  # "smooth_l1" | "mse" | "l1"
     device: str = "auto"          # "auto" | "cuda" | "mps" | "cpu"
+    early_stopping_patience: int = 15  # 0 disables early stopping entirely
+    log_target: bool = True
+    """Train on log1p(height) instead of raw meters, inverting via expm1 in
+    predict()/evaluate(). Real Phase 3 data spans building-height patches
+    (0-80m) and DEM-derived topographic-relief patches (0-530m) pooled into
+    one target — with SmoothL1Loss(beta=1.0), a 200m-off hilly prediction and
+    a 2m-off urban prediction produce roughly the same gradient, so the ~1%
+    of rows at the large scale get essentially no effective training signal
+    (measured: hilly MAE 197m vs 0.9-2.4m for everything else, before this
+    fix — docs/open_decisions.md, 2026-08-31). log-space compresses the
+    scale gap so errors are penalized proportionally instead of absolutely.
+    """
 
 
 def _detect_device(requested: str = "auto") -> str:
@@ -151,6 +164,8 @@ class HeightRegressor:
 
         X_train = np.asarray(X_train, dtype=np.float32)
         y_train = np.asarray(y_train, dtype=np.float32).flatten()
+        if self.config.log_target:
+            y_train = np.log1p(np.maximum(y_train, -0.999))  # log1p undefined at/below -1
 
         # Update input_dim if needed
         self.config.input_dim = X_train.shape[1]
@@ -174,6 +189,8 @@ class HeightRegressor:
         if X_val is not None and y_val is not None:
             X_val_norm = (np.asarray(X_val, dtype=np.float32) - self._feature_mean) / self._feature_std
             y_val_arr = np.asarray(y_val, dtype=np.float32).flatten()
+            if self.config.log_target:
+                y_val_arr = np.log1p(np.maximum(y_val_arr, -0.999))
             val_dataset = TensorDataset(torch.from_numpy(X_val_norm), torch.from_numpy(y_val_arr))
             val_loader = DataLoader(val_dataset, batch_size=min(self.config.batch_size, len(X_val)), shuffle=False)
 
@@ -193,6 +210,12 @@ class HeightRegressor:
 
         history: dict[str, list[float]] = {"train_loss": [], "val_loss": []}
         device = torch.device(self.device_str)
+
+        best_val_loss = float("inf")
+        best_state_dict = None
+        best_epoch = 0
+        epochs_without_improvement = 0
+        early_stopped = False
 
         self._model.train()
         for epoch in range(1, self.config.epochs + 1):
@@ -233,9 +256,36 @@ class HeightRegressor:
 
                 if verbose and (epoch % max(1, self.config.epochs // 5) == 0 or epoch == self.config.epochs):
                     logger.info("Epoch %2d/%2d — Train Loss: %.4f | Val Loss: %.4f", epoch, self.config.epochs, avg_train_loss, avg_val_loss)
+
+                # Best-checkpoint tracking + early stopping, both driven by
+                # validation loss — previously fit() only logged val_loss
+                # without acting on it (docs/phase4.md Chunk 1).
+                if avg_val_loss < best_val_loss:
+                    best_val_loss = avg_val_loss
+                    best_state_dict = copy.deepcopy(self._model.state_dict())
+                    best_epoch = epoch
+                    epochs_without_improvement = 0
+                else:
+                    epochs_without_improvement += 1
+                    if self.config.early_stopping_patience > 0 and epochs_without_improvement >= self.config.early_stopping_patience:
+                        early_stopped = True
+                        if verbose:
+                            logger.info(
+                                "Early stopping at epoch %d (no val improvement for %d epochs, best epoch %d)",
+                                epoch, self.config.early_stopping_patience, best_epoch,
+                            )
+                        break
             else:
                 if verbose and (epoch % max(1, self.config.epochs // 5) == 0 or epoch == self.config.epochs):
                     logger.info("Epoch %2d/%2d — Train Loss: %.4f", epoch, self.config.epochs, avg_train_loss)
+
+        # Restore the best-validation checkpoint, not whatever epoch happened
+        # to run last — this is what save_checkpoint()/predict() then use.
+        if best_state_dict is not None:
+            self._model.load_state_dict(best_state_dict)
+            history["best_epoch"] = best_epoch
+            history["best_val_loss"] = best_val_loss
+            history["early_stopped"] = early_stopped
 
         self._is_fitted = True
         return history
@@ -271,6 +321,9 @@ class HeightRegressor:
         with torch.no_grad():
             t_in = torch.from_numpy(X_norm).to(device)
             preds = self._model(t_in).cpu().numpy()
+
+        if self.config.log_target:
+            preds = np.expm1(preds)  # invert log1p — predict() always returns real meters
 
         if single_input:
             return preds[0]

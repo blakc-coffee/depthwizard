@@ -171,15 +171,20 @@ def run_batch_depth_extraction(
     return {"total": len(entries), "skipped": already_done, "processed": processed}
 
 
-def _depth_features(depth_path: str) -> dict:
-    """Summary statistics from a cached relative-depth map — the regressor's
+def compute_depth_features(depth: np.ndarray) -> dict:
+    """Summary statistics from a relative-depth array — the regressor's
     input features (never the raw pixel map itself, per docs/phase3.md).
 
     Computed over every pixel: Phase 1's frozen interface guarantees a dense,
     fully-valid uint8 output for any input (ml/depth/PHASE1_NOTES.md) — depth
     maps carry no NoData concept of their own, unlike the ground-truth patch.
+
+    Takes a 2D array directly (not a path) so ml/pipeline.py can compute the
+    exact same features from the in-memory single-channel depth map it
+    already has — reading back its own saved "LA" heightmap.png instead
+    would silently mix the always-255 alpha channel into every statistic.
     """
-    depth = np.array(Image.open(depth_path), dtype=np.float32)
+    depth = depth.astype(np.float32)
     grad = np.concatenate([np.abs(np.diff(depth, axis=0)).ravel(), np.abs(np.diff(depth, axis=1)).ravel()])
     p10, p25, p50, p75, p90 = np.percentile(depth, [10, 25, 50, 75, 90])
     return {
@@ -195,6 +200,11 @@ def _depth_features(depth_path: str) -> dict:
         "depth_grad_mean": float(grad.mean()),
         "depth_grad_std": float(grad.std()),
     }
+
+
+def _depth_features(depth_path: str) -> dict:
+    """Summary statistics from a cached relative-depth map PNG on disk."""
+    return compute_depth_features(np.array(Image.open(depth_path)))
 
 
 def _height_label(truth_path: str):
