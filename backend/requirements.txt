@@ -19,7 +19,7 @@ pydantic>=2.10
 pydantic-settings>=2.7
 python-dotenv>=1.0
 
-pyjwt>=2.10
+pyjwt[crypto]>=2.10
 pillow>=11.0
 supabase>=2.11
 

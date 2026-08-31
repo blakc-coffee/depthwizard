@@ -18,8 +18,12 @@ class Settings(BaseSettings):
     # `settings` (a debugger, a stray log line, a future bug) shows
     # `SecretStr('**********')` instead of the real value — call
     # `.get_secret_value()` explicitly at the one call site that needs it.
+    #
+    # No JWT secret here: this project signs with asymmetric JWT Signing
+    # Keys (ES256), not a shared HS256 secret, so auth/dependencies.py
+    # verifies against Supabase's public JWKS (derived from supabase_url)
+    # instead of a configured secret.
     supabase_url: str = ""
-    supabase_jwt_secret: SecretStr = SecretStr("")
     supabase_service_role_key: SecretStr = SecretStr("")
 
     # Database — Postgres is the source of truth for job state (PRD §2).

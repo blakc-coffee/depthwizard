@@ -7,23 +7,35 @@ Verifies the token signature, expiry, and audience; extracts identity from
 never trusted — this is the one place identity is allowed to come from
 (PRD §6/§9.2).
 
-Assumes HS256 shared-secret signing (`SUPABASE_JWT_SECRET`), the common
-default for Supabase projects. If this project uses the newer asymmetric
-signing keys instead, swap the `jwt.decode(..., settings.supabase_jwt_secret,
-algorithms=["HS256"])` call below for a JWKS fetch — this is the only place
-that needs to change.
+Verifies against Supabase's published JWKS (asymmetric signing keys — this
+project's current signing key is ECC/P-256, i.e. ES256; the older shared
+HS256 secret is being phased out, see Supabase dashboard -> JWT Keys).
+`PyJWKClient` resolves the right public key by the token's `kid` header and
+caches the fetched key set, so this also transparently covers key rotation:
+both the CURRENT key and any not-yet-revoked PREVIOUS key are served from
+the same JWKS endpoint. No shared secret is configured here at all — that's
+the point of asymmetric verification.
 """
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 import jwt
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jwt import PyJWKClient
 
 from app.core.config import get_settings
 from app.core.errors import ApiException, ErrorCode
 
 _bearer_scheme = HTTPBearer(auto_error=False)
+
+
+@lru_cache
+def _get_jwks_client() -> PyJWKClient:
+    jwks_url = f"{get_settings().supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
+    return PyJWKClient(jwks_url, cache_keys=True)
 
 
 def get_current_user_id(
@@ -32,12 +44,12 @@ def get_current_user_id(
     if credentials is None:
         raise ApiException(ErrorCode.AUTH_REQUIRED, "Missing bearer token.")
 
-    settings = get_settings()
     try:
+        signing_key = _get_jwks_client().get_signing_key_from_jwt(credentials.credentials)
         payload = jwt.decode(
             credentials.credentials,
-            settings.supabase_jwt_secret.get_secret_value(),
-            algorithms=["HS256"],
+            signing_key.key,
+            algorithms=["ES256", "RS256"],
             audience="authenticated",
         )
     except jwt.PyJWTError as exc:
