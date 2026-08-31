@@ -10,6 +10,7 @@ export type JobStage =
   | 'uploading_results';
 
 export type OutputType = 'absolute_dsm' | 'relative_dsm';
+export type HeightUnits = 'm' | 'relative';
 
 export interface JobError {
   code: string;
@@ -47,24 +48,26 @@ export interface JobListResponse {
 }
 
 export interface JobArtifacts {
-  texture_url?: string | null;
-  heightmap_url?: string | null;
+  texture_url: string;
+  heightmap_url: string;
   heightmap_16bit_url?: string | null;
   confidence_map_url?: string | null;
   dsm_url?: string | null;
 }
 
 export interface JobMetadata {
-  height_units: string;
-  min_height?: number | null;
-  max_height?: number | null;
+  height_units: HeightUnits;
+  min_height: number;
+  max_height: number;
+  width: number;
+  height: number;
   [key: string]: unknown;
 }
 
 export interface JobMetrics {
-  rmse?: number | null;
-  mae?: number | null;
-  correlation?: number | null;
+  rmse: number;
+  mae: number;
+  correlation: number;
   [key: string]: unknown;
 }
 
@@ -73,6 +76,6 @@ export interface JobResult {
   output_type: OutputType;
   artifacts: JobArtifacts;
   metadata: JobMetadata;
-  metrics?: JobMetrics | null;
-  warnings?: string[];
+  metrics: JobMetrics | null;
+  warnings: string[];
 }

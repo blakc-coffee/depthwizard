@@ -1,21 +1,28 @@
 import { JobResult, JobSummary } from './types';
 
+// Valid 1x1 base64 PNG Data URIs that decode instantly in all browser environments
+const SAMPLE_TEXTURE_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+const SAMPLE_HEIGHTMAP_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
 export const mockAbsoluteJobResult: JobResult = {
   job_id: 'mock-absolute-job-1234',
   output_type: 'absolute_dsm',
   artifacts: {
-    texture_url: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800&auto=format&fit=crop',
-    heightmap_url: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=800&auto=format&fit=crop',
+    texture_url: SAMPLE_TEXTURE_PNG,
+    heightmap_url: SAMPLE_HEIGHTMAP_PNG,
     heightmap_16bit_url: null,
-    confidence_map_url: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?w=800&auto=format&fit=crop',
+    confidence_map_url: null,
     dsm_url: 'https://example.com/downloads/mock_absolute_dsm.tif',
   },
   metadata: {
     height_units: 'm',
-    min_height: 182.4,
-    max_height: 251.7,
-    sensor: 'Aerial RGB',
-    calibration_source: 'SRTM30',
+    min_height: 0.0,
+    max_height: 69.3,
+    width: 256,
+    height: 256,
   },
   metrics: {
     rmse: 6.1,
@@ -29,8 +36,8 @@ export const mockRelativeJobResult: JobResult = {
   job_id: 'mock-relative-job-5678',
   output_type: 'relative_dsm',
   artifacts: {
-    texture_url: 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=800&auto=format&fit=crop',
-    heightmap_url: 'https://images.unsplash.com/photo-1579546929518-9e396f3cc809?w=800&auto=format&fit=crop',
+    texture_url: SAMPLE_TEXTURE_PNG,
+    heightmap_url: SAMPLE_HEIGHTMAP_PNG,
     heightmap_16bit_url: null,
     confidence_map_url: null,
     dsm_url: null,
@@ -38,10 +45,14 @@ export const mockRelativeJobResult: JobResult = {
   metadata: {
     height_units: 'relative',
     min_height: 0.0,
-    max_height: 1.0,
+    max_height: 255.0,
+    width: 256,
+    height: 256,
   },
   metrics: null,
-  warnings: ['SRTM reference fetch failed; output uncalibrated relative DSM.'],
+  warnings: [
+    'No geo-metadata on this input — SRTM was never attempted, output is uncalibrated relative depth.',
+  ],
 };
 
 export const mockJobsList: JobSummary[] = [
