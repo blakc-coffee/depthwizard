@@ -51,7 +51,29 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins_list(self) -> list[str]:
-        return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
+        """Explicit origins only — never "*". main.py sets
+        allow_credentials=True, and browsers reject a wildcard origin
+        combined with credentials outright; there's no server-side way
+        around that. Also strips trailing slashes and requires a scheme:
+        the browser's Origin header is always exactly `scheme://host[:port]`
+        — no path, no trailing slash — so a mismatch here fails silently as
+        a browser-console CORS error, not a Python exception. Better to
+        fail loud here, at startup, than have someone debug a "silent" CORS
+        rejection later.
+        """
+        origins = [origin.strip().rstrip("/") for origin in self.cors_allow_origins.split(",") if origin.strip()]
+        for origin in origins:
+            if origin == "*":
+                raise ValueError(
+                    "CORS_ALLOW_ORIGINS must not be '*' — this API sets allow_credentials=True, "
+                    "and browsers reject a wildcard origin combined with credentials. List explicit origins."
+                )
+            if not origin.startswith(("http://", "https://")):
+                raise ValueError(
+                    f"CORS_ALLOW_ORIGINS entry {origin!r} is missing a scheme (http:// or https://) — "
+                    "the browser's Origin header always includes one, so this would never match."
+                )
+        return origins
 
 
 @lru_cache

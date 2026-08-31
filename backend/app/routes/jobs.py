@@ -100,7 +100,7 @@ async def create_job(
         raise
 
     async_result = process_image.delay(str(job.id))
-    jobs.set_celery_task_id(job, async_result.id)
+    jobs.set_celery_task_id(job.id, async_result.id)
 
     return CreateJobResponse(job_id=job.id, status="queued")
 

@@ -60,7 +60,19 @@ class JobService:
         stmt = select(Job).where(Job.user_id == uuid.UUID(user_id)).order_by(Job.created_at.desc())
         return list(self.db.scalars(stmt))
 
-    def set_celery_task_id(self, job: Job, task_id: str) -> None:
+    def get_for_processing(self, job_id: uuid.UUID) -> Job | None:
+        """Used by the worker to load a job's input_path/user_id before
+        processing. Not ownership-scoped — the worker isn't acting on
+        behalf of an HTTP caller (see `exists()`). This, not a direct
+        `db.get(Job, ...)` in the task, is the only sanctioned way the
+        worker reads a job: every DB access stays behind JobService, which
+        is what makes the task fully fakeable in tests without a real DB."""
+        return self.db.get(Job, job_id)
+
+    def set_celery_task_id(self, job_id: uuid.UUID, task_id: str) -> None:
+        job = self.db.get(Job, job_id)
+        if job is None:
+            return
         job.celery_task_id = task_id
         self.db.commit()
 
