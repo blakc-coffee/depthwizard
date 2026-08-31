@@ -44,9 +44,20 @@ _DEPTH_GRAD_STD_IDX = FEATURE_COLUMNS.index("depth_grad_std")
 # outlier-dominated) and it produced a negative "variance" at low
 # percentiles. A robust 2-bin split on the real median is what's actually
 # supported by the data.
+# Re-measured 2026-08-31 five times: after depth_edge_density/depth_freq_high_ratio,
+# after depth_local_entropy + the height_min/height_max auxiliary-loss heads,
+# after Task 2's semantic segmentation features, and again after the ADE20K
+# interior-object keyword fix + semantic-cache regeneration (docs/
+# open_decisions.md, docs/phase_optimization.md). Threshold is stable across
+# all five schema/retrain versions (depth_grad_std's own values never
+# changed — neither adding unrelated feature columns nor changing the
+# segmentation keyword map touches it); variances drift each retrain since
+# predictions shift even on old rows.
+# History: 7.226/22.146 (11 features) -> 6.965/20.112 (13) -> 6.841/20.027 (14)
+# -> 7.052/17.710 (18, pre-keyword-fix) -> 6.537/18.778 (18, current).
 _TEXTURE_VARIANCE_THRESHOLD = 2.751  # median depth_grad_std, real non-hilly test set
-_TEXTURE_LOW_VARIANCE = 7.226        # measured MSE below threshold
-_TEXTURE_HIGH_VARIANCE = 22.146      # measured MSE at/above threshold
+_TEXTURE_LOW_VARIANCE = 6.537        # measured MSE below threshold
+_TEXTURE_HIGH_VARIANCE = 18.778      # measured MSE at/above threshold
 
 
 def _texture_adaptive_regressor_variance(depth_features: np.ndarray) -> float:

@@ -83,9 +83,26 @@ DEFAULT_HEIGHT_PRIORS: dict[SemanticClass, HeightPrior] = {
 }
 
 # ADE20K semantic labels mapping to canonical 4 classes
+#
+# window/door/ceiling/cabinet/mirror/escalator are ADE20K *interior-object*
+# labels, added here for a domain-specific reason, not a general one: this
+# pipeline only ever segments aerial/satellite/drone imagery, never a real
+# indoor photo, so these labels appearing at all means the model (trained on
+# ADE20K's largely street-level/indoor scene distribution) is misreading a
+# flat rooftop or facade's texture as a room interior — confirmed directly
+# on a real patch (docs/open_decisions.md, 2026-08-31): a warehouse rooftop,
+# unambiguously a building in the RGB and ground truth, came back 81%
+# "ceiling"+"windowpane" and only 19% "wall". Measured across 25 real urban
+# test patches before adding these: "mountain"/"earth"/"rock"/"water"/
+# "truck"/"floor" also fall to OTHER but are legitimately non-building in
+# this domain (bare ground, water, vehicles) — deliberately NOT added here.
+# If this pipeline is ever pointed at real indoor imagery, this keyword set
+# would need reconsidering; it is safe only because that's out of scope for
+# DepthWizard's actual domain.
 ADE20K_BUILDING_KEYWORDS = {
     "building", "house", "roof", "skyscraper", "edifice", "booth", "tower",
-    "shack", "hovel", "shed", "barn", "wall", "fence", "structure"
+    "shack", "hovel", "shed", "barn", "wall", "fence", "structure",
+    "window", "door", "ceiling", "cabinet", "mirror", "escalator",
 }
 ADE20K_VEGETATION_KEYWORDS = {
     "tree", "grass", "plant", "flora", "vegetation", "field", "flower",
@@ -255,6 +272,95 @@ def get_semantic_height_priors(
             max_map[mask] = prior.max_height
 
     return mean_map, std_map, min_map, max_map
+
+
+def _label_components(mask: np.ndarray) -> list[np.ndarray]:
+    """4-connected connected-component labeling, pure numpy/Python — no
+    scipy/cv2/skimage in ml/requirements.txt (same constraint documented in
+    ml/features/extract_features.py). Returns one boolean mask per component.
+    Patches are 256x256 max, so a plain BFS is fast enough (no need for a
+    proper union-find)."""
+    h, w = mask.shape
+    visited = np.zeros_like(mask, dtype=bool)
+    components = []
+    for start_y in range(h):
+        for start_x in range(w):
+            if not mask[start_y, start_x] or visited[start_y, start_x]:
+                continue
+            stack = [(start_y, start_x)]
+            visited[start_y, start_x] = True
+            coords = []
+            while stack:
+                cy, cx = stack.pop()
+                coords.append((cy, cx))
+                for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    ny, nx = cy + dy, cx + dx
+                    if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not visited[ny, nx]:
+                        visited[ny, nx] = True
+                        stack.append((ny, nx))
+            ys, xs = zip(*coords)
+            comp_mask = np.zeros_like(mask, dtype=bool)
+            comp_mask[list(ys), list(xs)] = True
+            components.append(comp_mask)
+    return components
+
+
+def correct_missed_structures(
+    depth: np.ndarray,
+    class_map: np.ndarray,
+    target_class: SemanticClass = SemanticClass.BUILDING,
+    min_component_size: int = 25,
+    boost_sigma: float = 1.0,
+) -> tuple[np.ndarray, int]:
+    """Rendering-time fix for a real, measured failure mode (docs/
+    open_decisions.md, 2026-08-31 structure-diff finding): relative depth
+    under-detects large, uniform, low-contrast flat structures (e.g.
+    warehouse rooftops) because monocular depth needs internal edges/shadows
+    to infer relief from, and a uniform-albedo roof has none. A real
+    building has almost no reason to sit at or below the scene's own average
+    depth — roads, ground, and most vegetation are the baseline a building
+    should read above. Where semantic segmentation says a connected region
+    IS `target_class` but the relative-depth model didn't elevate it above
+    that baseline, shift the whole region up toward a plausible level
+    (scene mean + `boost_sigma` * scene std) while preserving its internal
+    relative shape — not flattening it to a single constant block, which
+    would look worse, not better, once rendered.
+
+    This intentionally does NOT touch the scalar calibration path (the
+    feature vector fed to the regressor/fusion/SRTM-gate machinery) — only
+    the depth array that becomes the frontend-facing heightmap. Every
+    constant already measured and validated this session (texture-adaptive
+    variance, fusion variances, the scale-anchor grounding gate) was fit
+    against the *uncorrected* depth statistics; blending this into the
+    calibration input would silently invalidate all of them.
+
+    Only as good as the segmentation call it's given — a region segmentation
+    mislabels as `other` instead of `building` (a real, separately-tracked
+    bug, docs/open_decisions.md) is invisible to this function by
+    construction; it can only correct within regions segmentation already
+    identified correctly.
+
+    Returns (corrected_depth, n_pixels_corrected) — the count lets the
+    caller decide whether a warning is worth surfacing.
+    """
+    depth = depth.astype(np.float32).copy()
+    scene_mean = float(depth.mean())
+    scene_std = float(depth.std())
+    target_value = float(np.clip(scene_mean + boost_sigma * scene_std, 0.0, 255.0))
+
+    mask = class_map == CLASS_TO_IDX[target_class]
+    n_corrected = 0
+    for component in _label_components(mask):
+        if component.sum() < min_component_size:
+            continue
+        component_mean = float(depth[component].mean())
+        if component_mean > scene_mean:
+            continue  # already elevated above baseline — not a missed detection
+        shift = target_value - component_mean
+        depth[component] = np.clip(depth[component] + shift, 0.0, 255.0)
+        n_corrected += int(component.sum())
+
+    return depth, n_corrected
 
 
 def test_semantic_segmentation(sample_image: Image.Image | None = None) -> dict[str, np.ndarray]:

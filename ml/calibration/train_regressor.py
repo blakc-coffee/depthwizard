@@ -39,20 +39,34 @@ def load_split(path) -> tuple[np.ndarray, np.ndarray, list[dict]]:
     return X, y, rows
 
 
+def _aux_targets(rows: list[dict]) -> np.ndarray:
+    """height_min/height_max as auxiliary training targets — trains extra
+    output heads that regularize the shared trunk toward the same features
+    used for height_mean, never exposed via predict(). See
+    ml/features/FEATURE_SCHEMA.md's 'kept for later use' note on these
+    columns and docs/open_decisions.md, 2026-08-31."""
+    return np.array([[float(r["height_min"]), float(r["height_max"])] for r in rows], dtype=np.float32)
+
+
 def main():
     features_dir = Path(DEFAULT_FEATURES_DIR)
-    X_train, y_train, _ = load_split(features_dir / "features_train.csv")
+    X_train, y_train, train_rows = load_split(features_dir / "features_train.csv")
     X_val, y_val, val_rows = load_split(features_dir / "features_val.csv")
     X_test, y_test, _ = load_split(features_dir / "features_test.csv")
     print(f"Loaded train={len(X_train)} val={len(X_val)} test={len(X_test)} rows, "
-          f"{len(FEATURE_COLUMNS)} features -> target '{LABEL_COLUMN}'")
+          f"{len(FEATURE_COLUMNS)} features -> target '{LABEL_COLUMN}' "
+          f"(+ auxiliary height_min/height_max heads)")
 
     config = RegressorConfig(input_dim=len(FEATURE_COLUMNS))
     regressor = HeightRegressor(config)
     print(f"Training on device: {regressor.device_str} "
           f"(max {config.epochs} epochs, early-stopping patience {config.early_stopping_patience})")
 
-    history = regressor.fit(X_train, y_train, X_val=X_val, y_val=y_val, verbose=True)
+    history = regressor.fit(
+        X_train, y_train, X_val=X_val, y_val=y_val,
+        y_train_aux=_aux_targets(train_rows), y_val_aux=_aux_targets(val_rows),
+        verbose=True,
+    )
 
     stopped_note = "early-stopped" if history.get("early_stopped") else "ran full epoch budget"
     loss_space = "log-space" if config.log_target else "meters"

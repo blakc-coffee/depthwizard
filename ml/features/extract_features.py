@@ -41,10 +41,12 @@ if str(_ML_DIR) not in sys.path:
     sys.path.insert(0, str(_ML_DIR))
 
 from depth.backbone import estimate_relative_depth_batch  # noqa: E402
+from calibration.semantic_priors import CLASS_TO_IDX, SemanticClass, segment_image  # noqa: E402
 
 DEFAULT_MANIFEST = "data/processed/v1/manifest.json"
 DEFAULT_DATA_ROOT = "data/processed/v1"
 DEFAULT_CACHE_DIR = "data/processed/v1/depth_cache"
+DEFAULT_SEMANTIC_CACHE_DIR = "data/processed/v1/semantic_cache"
 DEFAULT_FEATURES_PATH = "data/processed/v1/features/features_v1.csv"
 EXPECTED_PATCH_SIZE = 256
 REQUIRED_SPLITS = {"train", "val", "test"}
@@ -52,11 +54,24 @@ REQUIRED_SPLITS = {"train", "val", "test"}
 # Frozen Chunk 3 schema — Phase 4 builds directly against this column order.
 # See ml/features/FEATURE_SCHEMA.md for what each column means and why.
 METADATA_COLUMNS = ["patch_id", "split", "terrain_type", "source"]
-FEATURE_COLUMNS = [
+DEPTH_FEATURE_COLUMNS = [
     "depth_min", "depth_max", "depth_mean", "depth_std",
     "depth_p10", "depth_p25", "depth_p50", "depth_p75", "depth_p90",
     "depth_grad_mean", "depth_grad_std",
+    "depth_edge_density", "depth_freq_high_ratio", "depth_local_entropy",
 ]
+# Added 2026-08-31 (Task 2, docs/phase_optimization.md): per-patch pixel
+# fractions from ml/calibration/semantic_priors.py's segmentation, run on the
+# patch's RGB image (not the depth map) — a legitimate, inference-available
+# stand-in for terrain identity. ml/pipeline.py already runs this same
+# segmentation at real inference time to build the semantic height prior, so
+# this is genuinely available, unlike the ground-truth-derived `terrain_type`
+# label (see docs/open_decisions.md's leakage finding).
+SEMANTIC_FEATURE_COLUMNS = [
+    "semantic_building_frac", "semantic_vegetation_frac",
+    "semantic_road_frac", "semantic_other_frac",
+]
+FEATURE_COLUMNS = DEPTH_FEATURE_COLUMNS + SEMANTIC_FEATURE_COLUMNS
 LABEL_COLUMNS = ["height_mean", "height_min", "height_max"]
 
 
@@ -127,6 +142,10 @@ def _output_path(cache_dir: str, entry: dict) -> str:
     return os.path.join(cache_dir, entry["split"], entry["terrain_type"], f"{entry['patch_id']}_depth.png")
 
 
+def _semantic_output_path(cache_dir: str, entry: dict) -> str:
+    return os.path.join(cache_dir, entry["split"], entry["terrain_type"], f"{entry['patch_id']}_classmap.png")
+
+
 def run_batch_depth_extraction(
     entries,
     data_root=DEFAULT_DATA_ROOT,
@@ -171,6 +190,110 @@ def run_batch_depth_extraction(
     return {"total": len(entries), "skipped": already_done, "processed": processed}
 
 
+def run_batch_semantic_extraction(
+    entries,
+    data_root=DEFAULT_DATA_ROOT,
+    cache_dir=DEFAULT_SEMANTIC_CACHE_DIR,
+    limit=None,
+    log_every=25,
+):
+    """Runs the real segmentation model (ml/calibration/semantic_priors.py)
+    over every entry's RGB patch, caching the class map. Resumable — a
+    cached classmap PNG existing on disk IS the checkpoint, same convention
+    as run_batch_depth_extraction. One call per patch (segment_image() takes
+    a single image, unlike the depth model's batched call)."""
+    if limit is not None:
+        entries = entries[:limit]
+
+    pending = [e for e in entries if not os.path.exists(_semantic_output_path(cache_dir, e))]
+    already_done = len(entries) - len(pending)
+    if already_done:
+        print(f"Resuming: {already_done}/{len(entries)} patches already cached, skipping.")
+
+    start = time.monotonic()
+    for i, entry in enumerate(pending, 1):
+        image = _load_patch_image(os.path.join(data_root, entry["rgb_path"]))
+        class_map = segment_image(image)
+        out_path = _semantic_output_path(cache_dir, entry)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        Image.fromarray(class_map, "L").save(out_path)
+
+        if i % log_every == 0 or i == len(pending):
+            elapsed = time.monotonic() - start
+            rate = i / elapsed if elapsed > 0 else 0
+            eta = (len(pending) - i) / rate if rate > 0 else float("inf")
+            print(
+                f"  {already_done + i}/{len(entries)} patches "
+                f"({elapsed:.1f}s elapsed, {rate:.2f} patches/s, ETA {eta:.0f}s)"
+            )
+
+    print(f"Done: {len(entries)} total ({already_done} skipped, {len(pending)} newly processed).")
+    return {"total": len(entries), "skipped": already_done, "processed": len(pending)}
+
+
+def _edge_density(depth: np.ndarray) -> float:
+    """Fraction of pixels whose Sobel gradient magnitude exceeds its own
+    scene's mean+std. Decoupled from raw gradient magnitude (depth_grad_std
+    already captures that) — this captures *pattern*: a scene with a few
+    strong, isolated edges (buildings, ridgelines) reads differently here
+    than one with the same aggregate roughness spread diffusely (canopy
+    noise), per ml/depth/PHASE1_NOTES.md's documented failure mode. Pure
+    numpy — no scipy/cv2 available in ml/requirements.txt."""
+    padded = np.pad(depth, 1, mode="edge")
+    gx = (
+        -padded[:-2, :-2] + padded[:-2, 2:]
+        - 2 * padded[1:-1, :-2] + 2 * padded[1:-1, 2:]
+        - padded[2:, :-2] + padded[2:, 2:]
+    )
+    gy = (
+        -padded[:-2, :-2] - 2 * padded[:-2, 1:-1] - padded[:-2, 2:]
+        + padded[2:, :-2] + 2 * padded[2:, 1:-1] + padded[2:, 2:]
+    )
+    magnitude = np.sqrt(gx ** 2 + gy ** 2)
+    threshold = magnitude.mean() + magnitude.std()
+    return float((magnitude > threshold).mean())
+
+
+def _freq_high_ratio(depth: np.ndarray) -> float:
+    """Fraction of 2D FFT magnitude energy sitting in the outer 75% of the
+    frequency radius. Canopy-noise texture shows up as high-frequency energy
+    with no coherent structure; clean terrain/ridgelines are low-frequency
+    dominant — same Phase 1 failure mode as _edge_density, viewed from the
+    frequency domain instead of the spatial one."""
+    magnitude = np.abs(np.fft.fftshift(np.fft.fft2(depth)))
+    h, w = depth.shape
+    cy, cx = h / 2.0, w / 2.0
+    y, x = np.ogrid[:h, :w]
+    radius = np.sqrt((y - cy) ** 2 + (x - cx) ** 2)
+    max_radius = np.sqrt(cy ** 2 + cx ** 2)
+    high_mask = radius >= 0.25 * max_radius
+    total = magnitude.sum()
+    return float(magnitude[high_mask].sum() / total) if total > 0 else 0.0
+
+
+def _local_entropy(depth: np.ndarray, grid: int = 4, bins: int = 16) -> float:
+    """Mean Shannon entropy of the pixel-value histogram over a grid of
+    blocks (4x4 by default — works down to very small patches since block
+    size is derived from the array's own shape, not fixed). A third way of
+    looking at the same pattern-vs-magnitude question as _edge_density and
+    _freq_high_ratio: a block of uniformly noisy canopy texture has a flatter
+    local histogram (high entropy) than a block of the same std spent on a
+    single clean edge (low entropy, most pixels on one side or the other).
+    Pure numpy — no scipy/skimage available in ml/requirements.txt."""
+    h, w = depth.shape
+    bh, bw = max(1, h // grid), max(1, w // grid)
+    entropies = []
+    for i in range(0, h, bh):
+        for j in range(0, w, bw):
+            block = depth[i:i + bh, j:j + bw]
+            if block.size == 0:
+                continue
+            hist, _ = np.histogram(block, bins=bins)
+            probs = hist[hist > 0] / hist.sum()
+            entropies.append(-np.sum(probs * np.log2(probs)))
+    return float(np.mean(entropies)) if entropies else 0.0
+
+
 def compute_depth_features(depth: np.ndarray) -> dict:
     """Summary statistics from a relative-depth array — the regressor's
     input features (never the raw pixel map itself, per docs/phase3.md).
@@ -199,12 +322,34 @@ def compute_depth_features(depth: np.ndarray) -> dict:
         "depth_p90": float(p90),
         "depth_grad_mean": float(grad.mean()),
         "depth_grad_std": float(grad.std()),
+        "depth_edge_density": _edge_density(depth),
+        "depth_freq_high_ratio": _freq_high_ratio(depth),
+        "depth_local_entropy": _local_entropy(depth),
     }
 
 
 def _depth_features(depth_path: str) -> dict:
     """Summary statistics from a cached relative-depth map PNG on disk."""
     return compute_depth_features(np.array(Image.open(depth_path)))
+
+
+def compute_semantic_features(class_map: np.ndarray) -> dict:
+    """Per-patch pixel fractions of each of segment_image()'s 4 canonical
+    classes — a legitimate, RGB-derived terrain proxy (see
+    SEMANTIC_FEATURE_COLUMNS's comment for why this isn't leakage, unlike
+    the ground-truth-derived terrain_type label). Fractions sum to 1."""
+    total = class_map.size
+    return {
+        "semantic_building_frac": float(np.sum(class_map == CLASS_TO_IDX[SemanticClass.BUILDING]) / total),
+        "semantic_vegetation_frac": float(np.sum(class_map == CLASS_TO_IDX[SemanticClass.VEGETATION]) / total),
+        "semantic_road_frac": float(np.sum(class_map == CLASS_TO_IDX[SemanticClass.ROAD]) / total),
+        "semantic_other_frac": float(np.sum(class_map == CLASS_TO_IDX[SemanticClass.OTHER]) / total),
+    }
+
+
+def _semantic_features(classmap_path: str) -> dict:
+    """Semantic pixel fractions from a cached class-map PNG on disk."""
+    return compute_semantic_features(np.array(Image.open(classmap_path)))
 
 
 def _height_label(truth_path: str):
@@ -237,10 +382,11 @@ def _height_label(truth_path: str):
     }
 
 
-def build_feature_table(entries, cache_dir=DEFAULT_CACHE_DIR, data_root=DEFAULT_DATA_ROOT):
-    """One row per patch: metadata + depth-map features + ground-truth label.
-    Skips (and reports) patches with no cached depth map yet or no valid
-    ground-truth pixel at all — never fabricates a value for either."""
+def build_feature_table(entries, cache_dir=DEFAULT_CACHE_DIR, data_root=DEFAULT_DATA_ROOT, semantic_cache_dir=DEFAULT_SEMANTIC_CACHE_DIR):
+    """One row per patch: metadata + depth-map features + semantic features +
+    ground-truth label. Skips (and reports) patches missing any of: a cached
+    depth map, a valid ground-truth pixel, or a cached semantic class map —
+    never fabricates a value for any of them."""
     rows, skipped = [], []
     for entry in entries:
         depth_path = _output_path(cache_dir, entry)
@@ -253,8 +399,14 @@ def build_feature_table(entries, cache_dir=DEFAULT_CACHE_DIR, data_root=DEFAULT_
             skipped.append((entry["patch_id"], "no valid ground-truth pixels"))
             continue
 
+        semantic_path = _semantic_output_path(semantic_cache_dir, entry)
+        if not os.path.exists(semantic_path):
+            skipped.append((entry["patch_id"], "no cached semantic class map"))
+            continue
+
         row = {col: entry[col] for col in METADATA_COLUMNS}
         row.update(_depth_features(depth_path))
+        row.update(_semantic_features(semantic_path))
         row.update(label)
         rows.append(row)
 
@@ -292,6 +444,7 @@ def main():
     parser.add_argument("--manifest", default=DEFAULT_MANIFEST)
     parser.add_argument("--data-root", default=DEFAULT_DATA_ROOT)
     parser.add_argument("--cache-dir", default=DEFAULT_CACHE_DIR)
+    parser.add_argument("--semantic-cache-dir", default=DEFAULT_SEMANTIC_CACHE_DIR)
     parser.add_argument("--batch-size", type=int, default=8)
     parser.add_argument("--limit", type=int, default=None, help="Cap patch count — Chunk 1's subset dry run")
     parser.add_argument("--features-out", default=DEFAULT_FEATURES_PATH)
@@ -308,8 +461,17 @@ def main():
         batch_size=args.batch_size,
     )
 
+    print("\nExtracting semantic segmentation class maps (Task 2)...")
+    run_batch_semantic_extraction(
+        trainable,
+        data_root=args.data_root,
+        cache_dir=args.semantic_cache_dir,
+    )
+
     print("\nExtracting scene-level features (Chunk 3)...")
-    rows, skipped = build_feature_table(trainable, cache_dir=args.cache_dir, data_root=args.data_root)
+    rows, skipped = build_feature_table(
+        trainable, cache_dir=args.cache_dir, data_root=args.data_root, semantic_cache_dir=args.semantic_cache_dir
+    )
     if skipped:
         print(f"  skipped {len(skipped)}/{len(trainable)} patches — showing first 5: {skipped[:5]}")
 

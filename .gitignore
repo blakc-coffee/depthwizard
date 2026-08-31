@@ -62,3 +62,6 @@ ml/data/cache/
 /Train-Track1-Truth.zip
 /Track1-RGB/
 /Track1-Truth/
+
+# Manual-review diagnostic imagery (regenerable from real patches, not for git)
+/review_samples/

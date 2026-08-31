@@ -36,6 +36,8 @@ from ml.calibration.semantic_priors import (
     DEFAULT_HEIGHT_PRIORS,
     HeightPrior,
     SemanticClass,
+    _map_label_to_semantic_class,
+    correct_missed_structures,
     get_semantic_height_priors,
     segment_image,
 )
@@ -183,6 +185,95 @@ class TestSemanticPriors(unittest.TestCase):
         r_prior = DEFAULT_HEIGHT_PRIORS[SemanticClass.ROAD]
         self.assertEqual(mean_map[1, 0], r_prior.typical_height)
         self.assertEqual(std_map[1, 0], r_prior.std_dev)
+
+    def test_interior_object_labels_map_to_building_not_other(self):
+        """Regression test for the 2026-08-31 domain-mismatch fix
+        (docs/open_decisions.md): a real warehouse rooftop patch came back
+        81% 'ceiling'+'windowpane' from the segmentation model (ADE20K's
+        indoor/street-scene training distribution misreading rooftop/facade
+        texture as a room interior). Safe only because this pipeline never
+        segments real indoor imagery -- see ADE20K_BUILDING_KEYWORDS' comment."""
+        for label in ["windowpane", "window", "door", "ceiling", "cabinet", "mirror", "escalator"]:
+            self.assertEqual(
+                _map_label_to_semantic_class(label), SemanticClass.BUILDING,
+                f"{label!r} should map to BUILDING (domain-specific interior-object fix)",
+            )
+
+    def test_legitimately_non_building_labels_still_map_to_other(self):
+        """The domain-mismatch fix must stay narrow -- these labels are
+        genuinely not buildings (bare ground, water, vehicles) even in this
+        pipeline's aerial-only domain, and must not get swept up by it."""
+        for label in ["mountain", "earth", "rock", "water", "truck", "floor"]:
+            self.assertEqual(_map_label_to_semantic_class(label), SemanticClass.OTHER, f"{label!r} should stay OTHER")
+
+
+class TestMissedStructureCorrection(unittest.TestCase):
+    """Rendering-time fix (docs/open_decisions.md, 2026-08-31) for relative
+    depth under-detecting large uniform flat structures segmentation already
+    correctly identified as buildings."""
+
+    def test_missed_building_is_boosted_above_scene_baseline(self):
+        # A 10x10 "building" region reading flat/low (20) against a scene
+        # background of 100 -- exactly the warehouse-rooftop failure mode.
+        depth = np.full((32, 32), 100.0, dtype=np.float32)
+        depth[2:12, 2:12] = 20.0
+        class_map = np.full((32, 32), CLASS_TO_IDX[SemanticClass.OTHER], dtype=np.uint8)
+        class_map[2:12, 2:12] = CLASS_TO_IDX[SemanticClass.BUILDING]
+
+        corrected, n_corrected = correct_missed_structures(depth, class_map)
+
+        self.assertEqual(n_corrected, 100)
+        self.assertGreater(corrected[2:12, 2:12].mean(), depth.mean())
+        # untouched outside the corrected region
+        np.testing.assert_array_equal(corrected[:2, :], depth[:2, :])
+
+    def test_already_elevated_building_is_left_alone(self):
+        # A building region already reading above scene baseline must not
+        # be touched -- this only fixes missed detections, not all buildings.
+        depth = np.full((32, 32), 100.0, dtype=np.float32)
+        depth[2:12, 2:12] = 220.0
+        class_map = np.full((32, 32), CLASS_TO_IDX[SemanticClass.OTHER], dtype=np.uint8)
+        class_map[2:12, 2:12] = CLASS_TO_IDX[SemanticClass.BUILDING]
+
+        corrected, n_corrected = correct_missed_structures(depth, class_map)
+
+        self.assertEqual(n_corrected, 0)
+        np.testing.assert_array_equal(corrected, depth)
+
+    def test_tiny_component_below_min_size_is_ignored(self):
+        # A few stray mislabeled pixels (segmentation noise) must not trigger
+        # a correction -- only real, sizeable regions should.
+        depth = np.full((32, 32), 100.0, dtype=np.float32)
+        depth[0, 0] = 5.0
+        class_map = np.full((32, 32), CLASS_TO_IDX[SemanticClass.OTHER], dtype=np.uint8)
+        class_map[0, 0] = CLASS_TO_IDX[SemanticClass.BUILDING]
+
+        corrected, n_corrected = correct_missed_structures(depth, class_map, min_component_size=25)
+
+        self.assertEqual(n_corrected, 0)
+        np.testing.assert_array_equal(corrected, depth)
+
+    def test_non_target_class_is_never_corrected(self):
+        # A flat-reading vegetation region must not be corrected -- only the
+        # target_class (default BUILDING) is in scope.
+        depth = np.full((32, 32), 100.0, dtype=np.float32)
+        depth[2:12, 2:12] = 20.0
+        class_map = np.full((32, 32), CLASS_TO_IDX[SemanticClass.OTHER], dtype=np.uint8)
+        class_map[2:12, 2:12] = CLASS_TO_IDX[SemanticClass.VEGETATION]
+
+        corrected, n_corrected = correct_missed_structures(depth, class_map)
+
+        self.assertEqual(n_corrected, 0)
+        np.testing.assert_array_equal(corrected, depth)
+
+    def test_no_building_pixels_is_a_no_op(self):
+        depth = np.full((16, 16), 100.0, dtype=np.float32)
+        class_map = np.full((16, 16), CLASS_TO_IDX[SemanticClass.OTHER], dtype=np.uint8)
+
+        corrected, n_corrected = correct_missed_structures(depth, class_map)
+
+        self.assertEqual(n_corrected, 0)
+        np.testing.assert_array_equal(corrected, depth)
 
 
 class TestFusionLogic(unittest.TestCase):
