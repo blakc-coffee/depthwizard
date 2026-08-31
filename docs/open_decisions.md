@@ -419,6 +419,33 @@ A ~29x reduction — well beyond what the spec's own acceptance bar required (it
 
 ---
 
+## 2026-08-31 — HARD FLAG (OPEN, deliberately deferred): no large-image tiling/stitching exists anywhere in the pipeline
+
+**Status:** OPEN — explicitly deferred by user decision. **Do not start this until backend integration is done.** Logged now, in full, so it isn't lost or re-discovered from scratch later.
+
+**The problem, precisely.** Every stage of `ml/pipeline.py::run_pipeline()` runs on the input image as a single shot, at whatever resolution it happens to be, with no tiling, no size cap, and no explicit downsizing anywhere in the code:
+
+- `ml/utils/texture_export.py::export_texture()` — no resize logic at all (checked: no `resize`/`max_size`/`thumbnail`/`tile` in the file). A GeoTIFF's full native resolution is exported straight to PNG.
+- `ml/depth/backbone.py::estimate_relative_depth()` — calls the HF `depth-estimation` pipeline directly on the full-resolution image with no pre-resize.
+- `ml/calibration/semantic_priors.py::segment_image()` — same pattern, no pre-resize before the HF `image-segmentation` pipeline call.
+
+**Why it doesn't crash, but is still broken.** HF's pipelines internally downsize to the model's native inference resolution (Depth Anything V2's is roughly ~518px), run the model, then upsample the single prediction back to the original input's dimensions before returning it. So a huge image (confirmed by direct measurement this session: the raw Nepal Sentinel-2 source tile is 10980×10980) will not OOM or crash — but the returned depth/segmentation map has no more real spatial information in it than a ~518×518 prediction stretched to fit. **This is a silent quality collapse, not a loud failure** — nothing in the current code detects or warns about it. A large real satellite scene would come back as a smooth, information-poor blur with none of the real per-building/per-structure detail a tiled approach could preserve, and the pipeline would report success with no indication anything degraded.
+
+**Second, independent problem: `export_texture()` producing a huge PNG.** For the same 10980×10980 case, the exported "web-renderable" texture would itself be enormous — directly contradicting `docs/depthwizard.md` §9.8's own stated requirement that `texture_path` be a browser-decodable, web-renderable PNG. This needs solving even independent of the depth-quality problem above (could need its own downsize step regardless of whether tiling is built for the depth/segmentation side).
+
+**Third, a concrete bug found in code shipped *this session*, not a hypothetical:** `ml/calibration/semantic_priors.py::_label_components()` (backing `correct_missed_structures()`, added 2026-08-31 in this session's work) is a pure-Python BFS over every pixel, explicitly commented and designed around the assumption "Patches are 256x256 max, so a plain BFS is fast enough (no need for a proper union-find)." That assumption is false for a real large production upload — a huge image with large connected building regions would make this function genuinely slow (a real performance bug, not a correctness one) at a scale nothing in this codebase has been tested against. Any tiling work must either revisit this function's algorithm (e.g. a real union-find, or bounding the component search per-tile) or ensure it only ever runs per-tile on bounded-size inputs, never on a whole huge image at once.
+
+**What a real fix needs to decide (not yet designed, flagging the open questions, not answering them):**
+1. **Tile size and overlap.** Depth/segmentation models have their own native inference resolution (~518px for Depth Anything V2) — tile size should likely be chosen relative to that, not arbitrarily, so each tile gives the model real detail to work with rather than being downsized again internally.
+2. **Seam-blending/stitching strategy.** Naively concatenating independently-inferred tiles produces visible seams (a well-known failure mode in tiled depth/height estimation) — needs real overlap + blending (e.g. cosine/linear-ramp weighted blending in overlap regions), not a naive crop-and-paste.
+3. **Where SRTM/absolute calibration fits in for a tiled large image.** The scalar calibration path (`calibrate_scene()`) and the new dense fusion (`ml/calibration/dense_fusion.py`) both currently assume one `geo_bounds` covering the whole image — a tiled approach needs either one calibration pass over the whole stitched result, or a per-tile calibration strategy that stays consistent across tile boundaries (an inconsistent per-tile scale anchor would itself create visible seams in the absolute output, on top of any depth-map seam issue).
+4. **`_label_components()`'s algorithm** needs revisiting for large-scale correctness/performance once tiling exists (see above) — likely needs to run per-tile, not on a full large stitched image, or be replaced with a real union-find.
+5. **Backend/worker implications** (timeout, memory, task chunking for a multi-tile job) are explicitly out of `ml/`'s scope per its own standalone-module convention, but whoever designs backend integration needs to know this is coming — a large-image job may need to become a multi-step/chunked Celery task, not a single synchronous call, which is exactly why this is deferred until backend integration lands first.
+
+**Resolves when:** backend integration is complete (per explicit user sequencing decision, 2026-08-31) and this becomes the next active work item. When picked back up, write a proper spec (same treatment as `docs/dense_dsm_fusion.md`) before building — this entry is the flag, not the design.
+
+---
+
 ## 2026-08-30 — `ml/pipeline.py` duplicates `integration/contracts.py`'s `PipelineResult`
 
 **Status:** OPEN (left as-is, not a bug — flagging for awareness)
@@ -546,3 +573,66 @@ User narrowed the supplementary-data pull to hilly regions only (dropping the sp
 Also pulled `sentinel2_wyoming_n41w106_TCI.tif` back out of `supplementary-data/sentinel-2/` — this is the same non-overlapping candidate already logged as OPEN above (covers 41.5–42.5°N vs the DEM's 40.0–41.0°N). It should not be presented as a matched pair; the Wyoming 3DEP DEM tile is currently unpaired with any RGB. Resolves the same way as the existing open item: source a correctly-bounded Sentinel-2 tile for 40–41°N / -106..-105°W.
 
 Stray duplicate raw tiles that had been left loose at the repo root (outside `supplementary-data/`) from the original download were moved to `_to_delete/` at the repo root rather than deleted outright (this session has no delete permission on the connected folder) — user should review and delete that folder.
+
+---
+
+## 2026-08-31 — Phase 5 Chunk 1: manifest patch files have no persisted CRS at all, even the georeferenceable ones — `evaluate.py` burns bounds onto a temp copy rather than touching `pipeline.py`
+
+**Status:** RESOLVED (2026-08-31)
+
+`ml/pipeline.py::run_pipeline()`'s georeferencing check (`_is_georeferenced()`/`_get_geo_bounds()`) reads `src.crs` directly off the input file. Confirmed by inspection (`rasterio.open()` on a real `hilly`/`copernicus_dem` test patch) that **no manifest patch file carries a real CRS/transform on disk, including the georeferenceable ones** — `ml/calibration/patch_geo.py`'s own docstring already flagged this for supplementary ingestion ("never wrote a transform onto the individual patch files"), but this confirms it's universal: calling `run_pipeline()` unmodified on any `rgb_path` would take the `relative_dsm` branch for literally every test patch, including hilly, making Chunk 1's whole `absolute_dsm` accuracy measurement impossible.
+
+Two ways to close this: (a) give `run_pipeline()`/`PipelineResult` an optional geo-bounds-override parameter so callers can inject known bounds, or (b) leave `run_pipeline()`'s frozen signature untouched and instead make `evaluate.py` hand it something that already looks like a real georeferenced upload — a temp copy of the patch's RGB tif with `ml/calibration/patch_geo.py::get_patch_bounds()`'s analytically-recovered WGS84 bounds burned into a real `rasterio` transform+CRS before the file ever reaches `run_pipeline()`.
+
+**Took (b).** It's the more honest read of "run the real, complete pipeline" (Chunk 1's own stated design principle) — it exercises `_is_georeferenced()`/`_get_geo_bounds()` exactly as they'd behave against any real georeferenced upload, with zero special-casing inside `pipeline.py` itself, and it doesn't touch the frozen `PipelineResult`/`run_pipeline()` contract Chunk 4 is explicitly supposed to freeze. DFC2019 patches (the 98.9% majority) are left completely unmodified, since they are correctly, permanently non-georeferenceable and must exercise the real `relative_dsm` fallback path, not a synthetic one.
+
+**Resolves when:** N/A — this is how `evaluate.py` works going forward. If `ml/data/ingest_supplementary.py` is ever changed to persist a real transform onto patch files at ingestion time, this workaround becomes unnecessary but stays harmless (writing the same real bounds onto an already-georeferenced file is a no-op).
+
+---
+
+## 2026-08-31 — Phase 5 Chunk 1: full test-split run — 47/4,583 patches reached `absolute_dsm` (99.0% excluded, honest per the original spec), pooled hilly RMSE 48.7m dragged up by 2 real outlier patches
+
+**Status:** OPEN (flagged, not fixed — out of scope for Chunk 1 per `docs/phase5.md`)
+
+Full real `run_pipeline()` pass over all 4,583 test-split patches (37min actual, vs. a 2.5hr small-sample projection — the projection's per-patch cost was inflated by amortizing one-time model load over only 4 patches). 0 errors. Only `hilly` patches (47 of them — all from supplementary sources) ever reach `absolute_dsm`; `urban`/`sparse`/`forested` (DFC2019, 4,536 patches) correctly fall back to `relative_dsm` and are excluded from accuracy scoring, not silently dropped (99.0% excluded, reported explicitly).
+
+Pooled: RMSE=48.72m, MAE=17.12m, r=0.965 (n=47 scenes, 2,522,220 pixels). This number is not representative of the typical case — 45/47 patches individually score 3-30m RMSE (matches the 9.9m single-patch result Phase 4 already validated), but 2 patches are real large outliers: `sierra_nevada_patch_7_17` (pred 490.6m vs. truth 233.8m, RMSE 256.9m) and `scotland_patch_2_0` (pred 693.3m vs. truth 417.8m, RMSE 275.7m). Re-ran both through `run_pipeline()` directly to check the cause: neither failed the `MIN_SRTM_VALID_FRACTION` gate (both reached `absolute_dsm` normally) — both carry the same "confidence=0.39, anchored primarily to SRTM" warning as every other hilly patch, so this isn't an SRTM-void/coverage problem. Root cause not yet isolated (candidates: a real SRTM data-quality/geolocation issue specific to those two tiles, or `dense_fusion.py`'s trend/detail frequency-matching assumption breaking down on unusually steep real relief) — not investigated further, since root-causing this is outside Chunk 1's scope (`docs/phase5.md`: "already-logged gaps... out of scope for this phase to fix, only to report honestly if they show up in results"). Median/typical-case framing (not the outlier-dragged pooled mean) is the honest number to lead with in Chunk 2's writeup.
+
+**Resolves when:** whoever picks up dense-fusion accuracy work next isolates why these 2 of 47 real patches have a ~10-25x larger error than the rest — check the raw SRTM tile for `sierra_nevada` (7,17) and `scotland` (2,0) specifically before assuming it's a `dense_fusion.py` bug.
+
+**Update (Chunk 2):** `evaluate.py`'s JSON-packaging step flags outliers programmatically (>5x this run's own median RMSE, not a fixed meter threshold) rather than hardcoding these two — that threshold also catches a 3rd, smaller outlier: `tuscany_patch_14_2` (RMSE 67.2m). Re-ran the full 4,583-patch pass a second time (independently, for the JSON-packaging step) and got byte-identical per-patch numbers to this entry's original run — confirms the pipeline is deterministic, not a fluke of one run.
+
+---
+
+## 2026-08-31 — Phase 5 Chunk 3: Bhuvan/Cartosat — no quantitative claim possible (confirmed, not new), but the flat-terrain depth hallucination reproduces on real Indian imagery; missed-structure correction fired on ~83% of pixels (unusually high, cloud-related, not investigated further)
+
+**Status:** OPEN (flagged, not fixed — out of scope for Chunk 3)
+
+Only one real Bhuvan/Cartosat sample exists on disk (`ml/depth/samples/bhuvan_cartosat_sample.jpg`, 1500×1500 JPEG, no CRS), with no paired reference elevation — confirmed by design, not an oversight (`ml/data/download_datasets.py::add_bhuvan_sample()`'s own docstring: "No paired ground truth is required"). Full writeup: `docs/bhuvan_cartosat_validation.md`.
+
+Ran the real `run_pipeline()` on it: correctly took the `relative_dsm` path (JPEG can't carry geo-metadata). Two real findings from the qualitative visual result:
+
+1. The already-documented "flat-terrain hallucinated smooth gradient" failure mode (see the `ml/depth/backbone.py` entry higher in this log) reproduces on real Cartosat imagery, not just DFC2019 — the relative depth output for this real coastal-delta scene is a smooth left-right gradient with zero correlation to the visible river channels, settlements, or vegetation. Confirms the failure mode is about nadir-aerial-vs-ground-photo training mismatch, not an artifact specific to DFC2019's own sensor characteristics.
+2. `correct_missed_structures()` corrected ~83% of this image's pixels (1,873,596/2,250,000) — far above the single-digit-percent rates measured on DFC2019 urban patches earlier this session. Two small artifact blobs in the corrected heightmap spatially coincide with dense cloud cover in the RGB — plausible (not confirmed) hypothesis: segmentation misclassifies cloud pixels, feeding a false "missed building" signal into the correction. Not isolated by inspecting raw segmentation output for this image — a real gap for whoever investigates semantic-correction edge cases next, alongside the already-logged flat-pavement-as-`wall` and warehouse-rooftop segmentation issues.
+
+**Resolves when:** (1) is now considered confirmed across two real, independent image sources — no further action needed unless a fix for the hallucination itself is undertaken (already flagged elsewhere as an input-representation-level problem, not fixable by a bigger model on the same depth channel). (2) resolves when someone inspects `segment_image()`'s raw class map for this specific image (or another heavily-clouded real image) to confirm or rule out the cloud-misclassification hypothesis.
+
+---
+
+## 2026-08-31 — Phase 5 Chunk 4: contract frozen — verified against real Chunks 1-3 output, not just re-read
+
+**Status:** RESOLVED (2026-08-31) — this entry itself is the freeze note (`docs/phase5.md` Chunk 4's stated home for it)
+
+**What was checked, not just asserted:** `integration/contracts.py::PipelineResult.validate(strict=True)` run against the real `integration/pipeline_runner.py` adapter output (not `ml/pipeline.py`'s local dataclass directly — the adapter is what backend actually calls) for two real cases exercised this phase:
+- A real `relative_dsm` result (Bhuvan/Cartosat sample, Chunk 3) — `validate(strict=True)` returns `[]`.
+- A real `absolute_dsm` result (`nepal_patch_12_4`, Chunk 1's dense-fusion path, dsm_path populated) — `validate(strict=True)` returns `[]`.
+
+No field was added to either `PipelineResult` (frozen or `ml/pipeline.py`'s local duplicate) during Phase 5 — Chunks 1-3 only *consumed* `dsm_path`/`confidence_map_path` (already present since Phase 4's dense-fusion work), never added new ones. The one known field-set divergence (`ml/pipeline.py`'s local class has no `heightmap_16bit_path` attribute at all; `metrics` defaults to `{}` not `None`) is unchanged from the already-logged, already-accepted "deliberate duplicate" decision (see `CLAUDE.md` Learned rules) — `pipeline_runner.py`'s `getattr(ml_result, "heightmap_16bit_path", None)` and `ml_result.metrics or None` already correct for both, and did before this phase started.
+
+**Go/no-go, stated plainly (per Chunk 4's own instruction not to imply broader readiness than earned):**
+- **Contract: GO.** Frozen, verified against real output on both branches. Safe for backend/frontend integration work to build against without expecting further field changes.
+- **Backend integration testing (real FastAPI/Celery worker path): NO-GO, unstarted.** Everything validated this phase (and Phase 4) ran through `ml/pipeline.py`/`integration/pipeline_runner.py` directly or via `evaluate.py` — never through an actual Celery task, Postgres job row, or FastAPI endpoint. This freeze says the *shape* is stable, not that the worker path has been exercised even once.
+- **Large-image tiling (the 2026-08-31 HARD FLAG entry): still unresolved, unchanged.** Explicitly deferred until after backend integration per that entry's own logged sequencing decision — this freeze does not touch it.
+- **`validation_report.json`'s own honest scope:** only `hilly` terrain is quantitatively validated (47/4,583 test patches, 99.0% of the split has no absolute ground truth to score against) — see Chunk 1/2 entries. "Contract frozen" is not "every terrain's accuracy is proven."
+
+**Resolves when:** N/A — this is the freeze. Reopen only if a future phase needs a new `PipelineResult` field (at which point it's a new decision, not a reopening of this one).
