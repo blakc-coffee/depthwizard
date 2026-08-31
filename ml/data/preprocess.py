@@ -32,22 +32,34 @@ def classify_terrain(h_array, nodata=None):
     - This is a heuristic based purely on height-map spatial statistics.
     - It does not utilize semantic land-cover bands or visual imagery.
     - Boundaries between building edges and tree canopies of similar heights may be misclassified.
+
+    NaN handling: some DFC2019 truth tiles carry stray NaN pixels (LiDAR gaps)
+    with `nodata` left unset, and `!=` never excludes NaN even when `nodata`
+    IS set — so NaN must be excluded explicitly, not just filtered via the
+    nodata sentinel. Every NaN-containing patch used to silently default to
+    "hilly": np.std()/np.mean() propagate NaN, and every numeric threshold
+    comparison against NaN evaluates False, so the patch fell through every
+    branch into the final else (found and fixed 2026-08-31 — see
+    docs/open_decisions.md; all 33 of DFC2019's original "hilly" patches
+    turned out to be this bug, not real hilly terrain).
     """
+    valid_mask = ~np.isnan(h_array)
     if nodata is not None:
-        valid_h = h_array[h_array != nodata]
-    else:
-        valid_h = h_array
-        
+        valid_mask &= h_array != nodata
+    valid_h = h_array[valid_mask]
+
     if valid_h.size == 0:
         return "sparse", 0.0, 0.0
-        
+
     std = np.std(valid_h)
-    
-    # Calculate surface roughness (mean absolute gradient)
+
+    # Calculate surface roughness (mean absolute gradient) — nanmean so a
+    # stray NaN pixel only removes the 1-2 gradient cells touching it,
+    # instead of poisoning the whole patch's roughness to NaN.
     if h_array.ndim == 2:
         diff_x = np.abs(h_array[:, 1:] - h_array[:, :-1])
         diff_y = np.abs(h_array[1:, :] - h_array[:-1, :])
-        roughness = np.mean(diff_x) + np.mean(diff_y)
+        roughness = np.nanmean(diff_x) + np.nanmean(diff_y)
     else:
         roughness = 0.0
         
