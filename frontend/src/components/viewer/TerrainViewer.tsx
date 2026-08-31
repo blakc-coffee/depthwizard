@@ -83,67 +83,28 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-[#FDFCF8] border border-gray-200 rounded-xl overflow-hidden shadow-sm relative min-h-[420px] sm:min-h-[500px]">
-      {/* Accessible Control Bar */}
-      <div className="bg-[#FDFCF8] border-b border-gray-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3 z-10">
-        <div className="flex items-center space-x-1.5 bg-[#ECE9DD]/60 p-1 rounded-lg">
-          <button
-            type="button"
-            onClick={() => handleModeChange('3d')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-purple-600 ${
-              activeMode === '3d'
-                ? 'bg-purple-700 text-white shadow-xs'
-                : 'text-gray-700 hover:text-gray-900 hover:bg-[#ECE9DD]'
-            }`}
-          >
-            3D Terrain
-          </button>
-          <button
-            type="button"
-            onClick={() => handleModeChange('2d_heightmap')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-purple-600 ${
-              activeMode === '2d_heightmap'
-                ? 'bg-purple-700 text-white shadow-xs'
-                : 'text-gray-700 hover:text-gray-900 hover:bg-[#ECE9DD]'
-            }`}
-          >
-            2D Heightmap
-          </button>
-          <button
-            type="button"
-            disabled={!confidenceMapUrl}
-            onClick={() => confidenceMapUrl && handleModeChange('confidence')}
-            title={!confidenceMapUrl ? 'Confidence Map unavailable for this job' : 'View Confidence Map'}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-purple-600 ${
-              !confidenceMapUrl
-                ? 'opacity-40 cursor-not-allowed text-gray-500'
-                : activeMode === 'confidence'
-                ? 'bg-purple-700 text-white shadow-xs'
-                : 'text-gray-700 hover:text-gray-900 hover:bg-[#ECE9DD]'
-            }`}
-          >
-            Confidence Map
-          </button>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <button
-            type="button"
-            onClick={handleResetView}
-            aria-label="Reset 3D camera view"
-            className="text-xs text-gray-700 hover:text-purple-900 font-medium px-3 py-1.5 rounded-md border border-gray-300 hover:bg-[#ECE9DD] transition-colors focus:outline-none focus:ring-2 focus:ring-purple-600"
-          >
-            Reset View
-          </button>
-        </div>
+    <div className="w-full h-full bg-[#f6f8fa] border border-[#cdd2d9] rounded-[12px] p-4 sm:p-5 flex flex-col flex-1 max-w-full overflow-hidden">
+      {/* Viewer Header */}
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-base font-semibold text-[#36394a] font-heading">
+          3D Viewer
+        </h3>
+        <button
+          type="button"
+          onClick={handleResetView}
+          aria-label="Reset View"
+          className="text-xs text-[#36394a] hover:bg-white font-medium px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] bg-white transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
+        >
+          Reset View
+        </button>
       </div>
 
-      {/* 3D WebGL Canvas Container */}
-      <div className="flex-1 w-full h-full relative bg-[#F6F4EC] min-h-[360px]">
+      {/* 3D WebGL Canvas Container matching image_3.png */}
+      <div className="flex-1 w-full relative bg-[#1a1b25] rounded-[12px] overflow-hidden min-h-[360px] sm:min-h-[440px]">
         {loading && (
-          <div className="absolute inset-0 z-20 bg-[#FDFCF8]/90 flex items-center justify-center space-x-3 text-sm text-gray-700 font-medium">
+          <div className="absolute inset-0 z-20 bg-[#1a1b25]/90 flex items-center justify-center space-x-3 text-sm text-white font-medium">
             <svg
-              className="animate-spin h-5 w-5 text-purple-700"
+              className="animate-spin h-5 w-5 text-[#5e4cff]"
               xmlns="http://www.w3.org/2000/svg"
               fill="none"
               viewBox="0 0 24 24"
@@ -168,8 +129,8 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
         )}
 
         {viewerError && (
-          <div className="absolute inset-0 z-20 bg-[#FDFCF8] p-6 flex flex-col items-center justify-center text-center space-y-3">
-            <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center">
+          <div className="absolute inset-0 z-20 bg-[#1a1b25] p-6 flex flex-col items-center justify-center text-center space-y-3 text-white">
+            <div className="w-12 h-12 rounded-full bg-white/10 text-amber-400 flex items-center justify-center">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
@@ -179,12 +140,69 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
                 />
               </svg>
             </div>
-            <h4 className="text-sm font-semibold text-gray-900">3D Terrain Rendering Unavailable</h4>
-            <p className="text-xs text-gray-600 max-w-md">{viewerError}</p>
+            <h4 className="text-sm font-semibold font-heading">3D Terrain Rendering Unavailable</h4>
+            <p className="text-xs text-[#818898] max-w-md">{viewerError}</p>
           </div>
         )}
 
         <div ref={containerRef} className="w-full h-full absolute inset-0 cursor-grab active:cursor-grabbing" />
+      </div>
+
+      {/* Caption under canvas */}
+      <p className="text-[11px] text-[#818898] text-center my-2.5">
+        Drag to orbit · Scroll to zoom
+      </p>
+
+      {/* Bottom Segmented Overlay Pills matching image_3.png */}
+      <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1 border-t border-[#cdd2d9]/60 max-w-full overflow-hidden">
+        <span className="text-xs text-[#818898] font-medium mr-1.5">Overlay</span>
+
+        <button
+          type="button"
+          onClick={() => handleModeChange('3d')}
+          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
+            activeMode === '3d'
+              ? 'bg-[#5e4cff] text-white shadow-xs'
+              : 'bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa]'
+          }`}
+        >
+          Normal
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleModeChange('2d_heightmap')}
+          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
+            activeMode === '2d_heightmap'
+              ? 'bg-[#5e4cff] text-white shadow-xs'
+              : 'bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa]'
+          }`}
+        >
+          Slope
+        </button>
+
+        <button
+          type="button"
+          disabled={!confidenceMapUrl}
+          onClick={() => confidenceMapUrl && handleModeChange('confidence')}
+          title={!confidenceMapUrl ? 'Confidence Map unavailable for this job' : 'View Confidence Map'}
+          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
+            !confidenceMapUrl
+              ? 'opacity-40 cursor-not-allowed bg-white border border-[#cdd2d9] text-[#818898]'
+              : activeMode === 'confidence'
+              ? 'bg-[#5e4cff] text-white shadow-xs'
+              : 'bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa]'
+          }`}
+        >
+          Confidence
+        </button>
+
+        <button
+          type="button"
+          className="px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa] transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
+        >
+          Validation
+        </button>
       </div>
     </div>
   );

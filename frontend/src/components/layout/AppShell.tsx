@@ -8,15 +8,15 @@ export const AppShell = ({
   footer?: React.ReactNode;
 }) => {
   return (
-    <div className="min-h-screen bg-[#F6F4EC] text-gray-900 font-sans flex flex-col antialiased overflow-x-hidden w-full">
+    <div className="min-h-screen bg-white text-[#36394a] font-sans flex flex-col antialiased w-full overflow-x-hidden">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2 focus:bg-purple-700 focus:text-white focus:rounded-md focus:shadow-lg focus:outline-none"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-3 focus:left-3 focus:z-50 focus:px-4 focus:py-2 focus:bg-[#5e4cff] focus:text-white focus:rounded-[8px] focus:shadow-lg focus:outline-none"
       >
         Skip to main content
       </a>
-      <Header />
-      <main id="main-content" className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 lg:p-8 overflow-x-hidden">
+      <main id="main-content" className="flex-1 w-full px-6 sm:px-10 lg:px-12 py-6 flex flex-col box-border overflow-x-hidden">
+        <Header />
         {children}
       </main>
       {footer}

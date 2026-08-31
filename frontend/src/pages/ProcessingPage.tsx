@@ -26,21 +26,12 @@ export const ProcessingPage = () => {
 
   return (
     <AppShell>
-      <div className="space-y-6 py-4 sm:py-8 text-center">
-        <div className="max-w-2xl mx-auto">
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900 mb-1">
-            Terrain Reconstruction Pipeline
-          </h1>
-          <p className="text-xs font-mono text-gray-500 mb-6">
-            Job Reference: {jobId || 'Unknown'}
-          </p>
-        </div>
-
+      <div className="w-full flex-1">
         {loading && !jobData && !error ? (
-          <div className="bg-[#FDFCF8] border border-gray-200 rounded-xl p-8 max-w-2xl mx-auto shadow-sm">
-            <div className="flex items-center justify-center space-x-3 text-gray-700 text-sm font-medium">
+          <div className="bg-white border border-[#cdd2d9] rounded-[12px] p-8 max-w-2xl mx-auto shadow-xs text-center my-auto">
+            <div className="flex items-center justify-center space-x-3 text-[#36394a] text-sm font-medium">
               <svg
-                className="animate-spin h-5 w-5 text-purple-700"
+                className="animate-spin h-5 w-5 text-[#5e4cff]"
                 xmlns="http://www.w3.org/2000/svg"
                 fill="none"
                 viewBox="0 0 24 24"

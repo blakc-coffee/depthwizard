@@ -14,7 +14,7 @@ function formatFileSize(bytes: number): string {
 function getFileFormatBadge(filename: string): { label: string; isGeo: boolean } {
   const ext = filename.toLowerCase().split('.').pop() || '';
   if (ext === 'tif' || ext === 'tiff') {
-    return { label: 'TIFF / GeoTIFF', isGeo: true };
+    return { label: 'GeoTIFF / DEM', isGeo: true };
   }
   if (ext === 'png') {
     return { label: 'PNG Image', isGeo: false };
@@ -98,8 +98,8 @@ export const UploadForm = () => {
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement> | React.MouseEvent) => {
+    if (e) e.preventDefault();
     setErrorMessage(null);
 
     if (!selectedFile) {
@@ -130,55 +130,67 @@ export const UploadForm = () => {
   };
 
   return (
-    <div className="w-full max-w-3xl mx-auto space-y-6">
-      <div className="bg-[#FDFCF8] border border-gray-200 rounded-xl p-6 sm:p-8 shadow-sm">
-        <div className="mb-6">
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900 mb-1.5">
-            Input Satellite / Aerial Imagery
-          </h1>
-          <p className="text-sm text-gray-600">
-            Upload an image to initiate single-view depth estimation, reference calibration, and 3D terrain reconstruction.
-          </p>
-        </div>
+    <div className="w-full space-y-6 flex-1">
+      {/* Page Title & Subtitle */}
+      <div className="mb-6">
+        <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-[#36394a] font-heading mb-2">
+          Input Satellite / Aerial Imagery
+        </h1>
+        <p className="text-sm text-[#666d80]">
+          Upload a supported terrain dataset. DepthWizard will validate it before processing.
+        </p>
+      </div>
 
-        {errorMessage && (
-          <div
-            role="alert"
-            aria-live="polite"
-            className="mb-6 bg-[#FEE2E2] border border-[#FCA5A5] text-[#991B1B] text-sm rounded-md p-4 flex items-start space-x-3"
+      {errorMessage && (
+        <div
+          role="alert"
+          aria-live="polite"
+          className="mb-6 bg-[#FEE2E2] border border-[#FCA5A5] text-[#991B1B] text-xs rounded-[12px] p-4 flex items-start space-x-3"
+        >
+          <svg
+            className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
           >
-            <svg
-              className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-              />
-            </svg>
-            <div className="flex-1">
-              <span className="font-medium">Upload Error: </span>
-              <span>{errorMessage}</span>
-            </div>
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="2"
+              d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <div className="flex-1">
+            <span className="font-semibold">Upload Error: </span>
+            <span>{errorMessage}</span>
           </div>
-        )}
+        </div>
+      )}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <input
-            ref={fileInputRef}
-            id="file-upload"
-            name="file-upload"
-            type="file"
-            accept=".png,.jpg,.jpeg,.tif,.tiff,image/png,image/jpeg,image/tiff"
-            onChange={handleInputChange}
-            disabled={submitting}
-            className="sr-only"
-          />
+      {/* Two Column Input Workspace */}
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,360px)] gap-6 items-start w-full">
+        <input
+          ref={fileInputRef}
+          id="file-upload"
+          name="file-upload"
+          type="file"
+          accept=".png,.jpg,.jpeg,.tif,.tiff,image/png,image/jpeg,image/tiff"
+          onChange={handleInputChange}
+          disabled={submitting}
+          className="sr-only"
+        />
+
+        {/* Left Column: Terrain Dataset Workspace */}
+        <div className="bg-[#f6f8fa] border border-[#cdd2d9] rounded-[12px] p-6 space-y-4 w-full">
+          <div>
+            <h2 className="text-lg font-semibold text-[#36394a] font-heading mb-0.5">
+              Terrain dataset
+            </h2>
+            <p className="text-xs text-[#818898]">
+              Accepted: GeoTIFF, DEM, CSV, PNG, JPEG
+            </p>
+          </div>
 
           {!selectedFile ? (
             <div
@@ -190,46 +202,27 @@ export const UploadForm = () => {
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-8 sm:p-12 text-center cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-purple-600 ${
-                isDragOver
-                  ? 'border-purple-600 bg-purple-50/40'
-                  : 'border-gray-300 hover:border-purple-500 bg-[#FDFCF8]'
+              className={`border border-[#cdd2d9] rounded-[12px] p-12 text-center cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] bg-white ${
+                isDragOver ? 'border-[#5e4cff] bg-[#dfdbff]/20' : 'hover:border-[#5e4cff]'
               }`}
             >
-              <div className="w-14 h-14 rounded-full bg-[#ECE9DD] text-purple-800 mx-auto mb-4 flex items-center justify-center">
-                <svg
-                  className="w-7 h-7"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                  aria-hidden="true"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth="2"
-                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
-                  />
-                </svg>
-              </div>
-              <p className="text-base font-medium text-gray-900 mb-1">
-                Drag and drop your image here, or{' '}
-                <label
-                  htmlFor="file-upload"
-                  className="text-purple-700 underline font-semibold hover:text-purple-900 cursor-pointer"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  browse files
-                </label>
+              <h3 className="text-base font-semibold text-[#36394a] font-heading mb-1">
+                Drop your file here
+              </h3>
+              <p className="text-xs text-[#818898] mb-6">
+                Drag and drop your image here, or choose a file from your computer
               </p>
-              <p className="text-xs text-gray-500 font-sans">
-                Supports PNG, JPG/JPEG, TIFF, and GeoTIFF
-              </p>
+              <button
+                type="button"
+                className="bg-[#5e4cff] hover:bg-[#5e4cff]/90 text-white text-xs font-medium px-6 py-2.5 rounded-[8px] shadow-xs transition-colors pointer-events-none"
+              >
+                Choose terrain file
+              </button>
             </div>
           ) : (
-            <div className="bg-[#FDFCF8] border border-gray-300 rounded-xl p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="bg-white border border-[#cdd2d9] rounded-[12px] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center space-x-4">
-                <div className="w-12 h-12 rounded-lg bg-[#ECE9DD] text-purple-900 flex items-center justify-center flex-shrink-0">
+                <div className="w-12 h-12 rounded-lg bg-[#f6f8fa] border border-[#cdd2d9] text-[#5e4cff] flex items-center justify-center flex-shrink-0">
                   <svg
                     className="w-6 h-6"
                     fill="none"
@@ -247,7 +240,7 @@ export const UploadForm = () => {
                 </div>
                 <div>
                   <div className="flex items-center space-x-2">
-                    <span className="text-sm font-semibold text-gray-900 truncate max-w-[220px] sm:max-w-xs">
+                    <span className="text-sm font-semibold text-[#36394a] truncate max-w-[200px] sm:max-w-xs">
                       {selectedFile.name}
                     </span>
                     {(() => {
@@ -256,8 +249,8 @@ export const UploadForm = () => {
                         <span
                           className={`text-xs px-2 py-0.5 rounded font-mono font-medium ${
                             badge.isGeo
-                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                              : 'bg-[#ECE9DD] text-gray-800'
+                              ? 'bg-[#dfdbff] text-[#5e4cff] border border-[#c8ccf3]'
+                              : 'bg-[#f6f8fa] text-[#666d80] border border-[#cdd2d9]'
                           }`}
                         >
                           {badge.label}
@@ -265,7 +258,7 @@ export const UploadForm = () => {
                       );
                     })()}
                   </div>
-                  <span className="text-xs font-mono text-gray-500">
+                  <span className="text-xs font-mono text-[#818898]">
                     Size: {formatFileSize(selectedFile.size)}
                   </span>
                 </div>
@@ -276,7 +269,7 @@ export const UploadForm = () => {
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={submitting}
-                  className="text-xs text-purple-700 hover:text-purple-900 font-medium px-3 py-1.5 rounded border border-gray-300 hover:bg-[#ECE9DD] transition-colors focus:outline-none focus:ring-2 focus:ring-purple-600"
+                  className="text-xs text-[#36394a] hover:text-[#5e4cff] font-medium px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] hover:bg-[#f6f8fa] transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
                 >
                   Change File
                 </button>
@@ -284,7 +277,7 @@ export const UploadForm = () => {
                   type="button"
                   onClick={handleRemoveFile}
                   disabled={submitting}
-                  className="text-xs text-red-600 hover:text-red-800 font-medium px-3 py-1.5 rounded border border-red-200 hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500"
+                  className="text-xs text-red-600 hover:text-red-800 font-medium px-3 py-1.5 rounded-[8px] border border-red-200 hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500"
                 >
                   Remove File
                 </button>
@@ -292,8 +285,8 @@ export const UploadForm = () => {
             </div>
           )}
 
-          <div className="bg-[#ECE9DD]/60 border border-[#ECE9DD] rounded-lg p-4 text-xs text-gray-700 space-y-1">
-            <span className="font-semibold text-gray-900 block mb-0.5">Format Specifications:</span>
+          <div className="bg-white border border-[#cdd2d9] rounded-[12px] p-4 text-xs text-[#666d80] space-y-1">
+            <span className="font-semibold text-[#36394a] block mb-0.5 font-heading">Format Specifications:</span>
             <p>
               • <strong>PNG / JPG:</strong> Standard imagery for relative depth estimation.
             </p>
@@ -301,16 +294,42 @@ export const UploadForm = () => {
               • <strong>TIFF / GeoTIFF:</strong> Geo-referenced spatial rasters evaluate backend reference elevation anchors for absolute DSM calibration ($m$).
             </p>
           </div>
+        </div>
 
-          <div className="pt-2">
+        {/* Right Column: Before Processing Card */}
+        <div className="bg-white border border-[#cdd2d9] rounded-[12px] p-6 space-y-6 w-full lg:min-w-[320px] lg:max-w-[360px]">
+          <h2 className="text-base font-semibold text-[#36394a] font-heading border-b border-[#cdd2d9] pb-3">
+            Before processing
+          </h2>
+
+          <div className="space-y-4 text-xs">
+            <div className="flex items-center">
+              <span className="font-mono text-[#5e4cff] font-semibold mr-3">01</span>
+              <span className="font-medium text-[#36394a]">File format supported</span>
+            </div>
+            <div className="flex items-center">
+              <span className="font-mono text-[#5e4cff] font-semibold mr-3">02</span>
+              <span className="font-medium text-[#36394a]">Coordinate system detected</span>
+            </div>
+            <div className="flex items-center">
+              <span className="font-mono text-[#5e4cff] font-semibold mr-3">03</span>
+              <span className="font-medium text-[#36394a]">Elevation values readable</span>
+            </div>
+            <div className="flex items-center">
+              <span className="font-mono text-[#5e4cff] font-semibold mr-3">04</span>
+              <span className="font-medium text-[#36394a]">No critical gaps</span>
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-[#cdd2d9]">
             <button
               type="submit"
               disabled={!selectedFile || submitting}
-              className="w-full bg-purple-700 hover:bg-purple-800 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-3 px-6 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-purple-600 focus:ring-offset-2 transition-colors flex items-center justify-center space-x-2 text-base"
+              className="w-full bg-[#1a1b25] hover:bg-[#272835] disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold py-3 px-4 rounded-[8px] transition-colors flex items-center justify-center space-x-2 focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
             >
               {submitting && (
                 <svg
-                  className="animate-spin h-5 w-5 text-white"
+                  className="animate-spin h-4 w-4 text-white"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="none"
                   viewBox="0 0 24 24"
@@ -334,8 +353,8 @@ export const UploadForm = () => {
               <span>Process Image</span>
             </button>
           </div>
-        </form>
-      </div>
+        </div>
+      </form>
     </div>
   );
 };

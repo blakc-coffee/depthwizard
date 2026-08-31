@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { LoginForm } from '../components/auth/LoginForm';
+import { Header } from '../components/layout/Header';
 import { useAuth } from '../hooks/useAuth';
 
 export const AuthPage = () => {
@@ -12,10 +13,10 @@ export const AuthPage = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#F6F4EC] flex items-center justify-center p-4">
-        <div className="flex items-center space-x-3 text-gray-700 text-sm font-medium">
+      <div className="min-h-screen bg-white flex items-center justify-center p-4">
+        <div className="flex items-center space-x-3 text-[#36394a] text-sm font-medium">
           <svg
-            className="animate-spin h-5 w-5 text-purple-700"
+            className="animate-spin h-5 w-5 text-[#5e4cff]"
             xmlns="http://www.w3.org/2000/svg"
             fill="none"
             viewBox="0 0 24 24"
@@ -46,27 +47,61 @@ export const AuthPage = () => {
   }
 
   return (
-    <div className="min-h-screen bg-[#F6F4EC] flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <AuthPageHeader />
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md px-4">
-        <LoginForm />
+    <div className="relative min-h-screen bg-white text-[#36394a] font-sans flex flex-col justify-between antialiased w-full overflow-x-hidden">
+      <div className="w-full px-6 sm:px-10 lg:px-12 py-4 flex flex-col flex-1 box-border">
+        {/* Seamless Header (DEPTHWIZARD + Sign In only on auth page) */}
+        <Header />
+
+        {/* Top-Anchored Left-Aligned Hero Section */}
+        <div className="pt-2 sm:pt-6 lg:pt-8 pb-16 w-full max-w-2xl flex flex-col items-start space-y-6 lg:space-y-8">
+          <h1 className="text-[36px] sm:text-[44px] lg:text-[52px] font-semibold tracking-tight text-[#36394a] font-heading leading-[1.12]">
+            Reconstruct terrain from
+            <br className="hidden sm:inline" /> a single image.
+          </h1>
+
+          <LoginForm />
+        </div>
+      </div>
+
+      {/* Tiny Bottom-Right Corner Decorative Pixel Grid Motif Signature */}
+      <div
+        aria-hidden="true"
+        className="hidden lg:block absolute bottom-8 lg:bottom-10 right-8 lg:right-16 pointer-events-none select-none z-10"
+      >
+        <PixelGridMotif />
       </div>
     </div>
   );
 };
 
-const AuthPageHeader = () => {
+const PixelGridMotif = () => {
+  // Small discrete raw pixel grid signature anchored to bottom-right corner
+  const pixels = [
+    { size: 'w-5 h-5', color: 'bg-[#5e4cff]', opacity: 'opacity-90' },
+    { size: 'w-3 h-3', color: 'bg-[#c8ccf3]', opacity: 'opacity-80' },
+    { size: 'w-4 h-4', color: 'bg-[#5e4cff]', opacity: 'opacity-70' },
+    { size: 'w-3 h-3', color: 'bg-[#dfdbff]', opacity: 'opacity-60' },
+    { size: 'w-3.5 h-3.5', color: 'bg-[#5e4cff]', opacity: 'opacity-80' },
+    { size: 'w-3 h-3', color: 'bg-[#c8ccf3]', opacity: 'opacity-90' },
+    { size: 'w-5 h-5', color: 'bg-[#5e4cff]', opacity: 'opacity-100' },
+    { size: 'w-3.5 h-3.5', color: 'bg-[#c8ccf3]', opacity: 'opacity-70' },
+    { size: 'w-4 h-4', color: 'bg-[#dfdbff]', opacity: 'opacity-90' },
+    { size: 'w-3 h-3', color: 'bg-[#5e4cff]', opacity: 'opacity-100' },
+    { size: 'w-6 h-6', color: 'bg-[#dfdbff]', opacity: 'opacity-80' },
+    { size: 'w-3.5 h-3.5', color: 'bg-[#c8ccf3]', opacity: 'opacity-90' },
+    { size: 'w-3 h-3', color: 'bg-[#5e4cff]', opacity: 'opacity-80' },
+    { size: 'w-4 h-4', color: 'bg-[#c8ccf3]', opacity: 'opacity-100' },
+    { size: 'w-3 h-3', color: 'bg-[#5e4cff]', opacity: 'opacity-70' },
+  ];
+
   return (
-    <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-      <div className="inline-flex items-center space-x-2.5 mb-2">
-        <span className="w-8 h-8 rounded-lg bg-purple-700 text-white font-bold flex items-center justify-center text-lg shadow-sm">
-          D
-        </span>
-        <span className="text-2xl font-bold tracking-tight text-gray-900">DepthWizard</span>
-      </div>
-      <p className="text-xs font-mono text-gray-500 uppercase tracking-wider">
-        SIH 2026 • Single-View Terrain 3D
-      </p>
+    <div className="grid grid-cols-5 gap-2.5 items-center justify-items-center opacity-85">
+      {pixels.map((p, idx) => (
+        <div
+          key={idx}
+          className={`${p.size} ${p.color} ${p.opacity} rounded-xs`}
+        />
+      ))}
     </div>
   );
 };
