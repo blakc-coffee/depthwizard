@@ -12,7 +12,11 @@ import shutil
 import numpy as np
 import rasterio
 from rasterio.windows import Window
-import matplotlib.pyplot as plt
+
+# Not a constraint from Phase 1 — its frozen interface (ml/depth/PHASE1_NOTES.md)
+# accepts any input size. 256 is a conventional ML patch size, chosen so it
+# divides typical DFC2019 tile dimensions with a small, pad-handled remainder.
+DEFAULT_PATCH_SIZE = 256
 
 def classify_terrain(h_array, nodata=None):
     """
@@ -28,22 +32,34 @@ def classify_terrain(h_array, nodata=None):
     - This is a heuristic based purely on height-map spatial statistics.
     - It does not utilize semantic land-cover bands or visual imagery.
     - Boundaries between building edges and tree canopies of similar heights may be misclassified.
+
+    NaN handling: some DFC2019 truth tiles carry stray NaN pixels (LiDAR gaps)
+    with `nodata` left unset, and `!=` never excludes NaN even when `nodata`
+    IS set — so NaN must be excluded explicitly, not just filtered via the
+    nodata sentinel. Every NaN-containing patch used to silently default to
+    "hilly": np.std()/np.mean() propagate NaN, and every numeric threshold
+    comparison against NaN evaluates False, so the patch fell through every
+    branch into the final else (found and fixed 2026-08-31 — see
+    docs/open_decisions.md; all 33 of DFC2019's original "hilly" patches
+    turned out to be this bug, not real hilly terrain).
     """
+    valid_mask = ~np.isnan(h_array)
     if nodata is not None:
-        valid_h = h_array[h_array != nodata]
-    else:
-        valid_h = h_array
-        
+        valid_mask &= h_array != nodata
+    valid_h = h_array[valid_mask]
+
     if valid_h.size == 0:
         return "sparse", 0.0, 0.0
-        
+
     std = np.std(valid_h)
-    
-    # Calculate surface roughness (mean absolute gradient)
+
+    # Calculate surface roughness (mean absolute gradient) — nanmean so a
+    # stray NaN pixel only removes the 1-2 gradient cells touching it,
+    # instead of poisoning the whole patch's roughness to NaN.
     if h_array.ndim == 2:
         diff_x = np.abs(h_array[:, 1:] - h_array[:, :-1])
         diff_y = np.abs(h_array[1:, :] - h_array[:-1, :])
-        roughness = np.mean(diff_x) + np.mean(diff_y)
+        roughness = np.nanmean(diff_x) + np.nanmean(diff_y)
     else:
         roughness = 0.0
         
@@ -142,7 +158,85 @@ def patchify_tile(rgb_path, height_path, patch_size, temp_dir, edge_policy="pad"
                 
     return patches_meta
 
-def split_and_stratify_dataset(patches, output_dir, seed=42):
+def patchify_rgb_only(rgb_path, patch_size, temp_dir, edge_policy="pad"):
+    """
+    Slices an RGB-only tile into patches — no paired ground truth required.
+    For Bhuvan/Cartosat Indian-terrain samples (PRD Section 3.2 / 7.0): these
+    are for qualitative validation, not training, so no height label exists
+    and terrain_type cannot be classified from height statistics.
+    """
+    os.makedirs(os.path.join(temp_dir, "rgb"), exist_ok=True)
+    patches_meta = []
+
+    with rasterio.open(rgb_path) as src_rgb:
+        width, height, crs = src_rgb.width, src_rgb.height, src_rgb.crs
+        x_steps = int(np.ceil(width / patch_size)) if edge_policy == "pad" else width // patch_size
+        y_steps = int(np.ceil(height / patch_size)) if edge_policy == "pad" else height // patch_size
+        base_name = os.path.splitext(os.path.basename(rgb_path))[0].replace("_RGB", "")
+
+        for y_idx in range(y_steps):
+            for x_idx in range(x_steps):
+                col_off, row_off = x_idx * patch_size, y_idx * patch_size
+                w_width = min(patch_size, width - col_off)
+                w_height = min(patch_size, height - row_off)
+                window = Window(col_off, row_off, w_width, w_height)
+                rgb_data = src_rgb.read(window=window)
+                window_transform = rasterio.windows.transform(window, src_rgb.transform)
+
+                padded = False
+                if edge_policy == "pad" and (w_width < patch_size or w_height < patch_size):
+                    padded = True
+                    rgb_data = np.pad(rgb_data, ((0, 0), (0, patch_size - w_height), (0, patch_size - w_width)),
+                                       mode="constant", constant_values=0)
+
+                patch_id = f"{base_name}_patch_{y_idx}_{x_idx}"
+                temp_rgb_path = os.path.join(temp_dir, "rgb", f"{patch_id}_RGB.tif")
+                rgb_meta = src_rgb.meta.copy()
+                rgb_meta.update({"height": patch_size, "width": patch_size, "transform": window_transform})
+                with rasterio.open(temp_rgb_path, "w", **rgb_meta) as dst_rgb:
+                    dst_rgb.write(rgb_data)
+
+                patches_meta.append({
+                    "patch_id": patch_id,
+                    "source_tile": base_name,
+                    "temp_rgb": temp_rgb_path,
+                    "padded": padded,
+                    "crs": str(crs)
+                })
+
+    return patches_meta
+
+def build_bhuvan_manifest_section(patches, output_dir, source_label, terrain_label="unclassified"):
+    """
+    Registers Bhuvan/Cartosat validation patches under their own split tag —
+    'validation_only', never 'train'/'val'/'test' — so nothing downstream can
+    accidentally blend them into the DFC2019/US3D training data. Kept as its
+    own manifest section (filter on `source` or `split == "validation_only"`),
+    per Phase 2 Chunk 4's frozen contract.
+    """
+    dest_dir = os.path.join(output_dir, "validation_only", source_label, "rgb")
+    os.makedirs(dest_dir, exist_ok=True)
+
+    manifest_entries = []
+    for patch in patches:
+        rgb_dest = os.path.join(dest_dir, f"{patch['patch_id']}_RGB.tif")
+        shutil.move(patch["temp_rgb"], rgb_dest)
+        manifest_entries.append({
+            "patch_id": patch["patch_id"],
+            "source": source_label,
+            "source_tile": patch["source_tile"],
+            "split": "validation_only",
+            "terrain_type": terrain_label,
+            "rgb_path": os.path.relpath(rgb_dest, output_dir),
+            "truth_path": None,
+            "std": None,
+            "roughness": None,
+            "padded": patch["padded"],
+            "crs": patch["crs"],
+        })
+    return manifest_entries
+
+def split_and_stratify_dataset(patches, output_dir, seed=42, source="dfc2019"):
     """
     Splits patches into train (60%), val (20%), and test (20%) splits,
     stratified by terrain type. Shuffles using fixed seed for reproducibility.
@@ -211,6 +305,7 @@ def split_and_stratify_dataset(patches, output_dir, seed=42):
             # Add to manifest
             final_manifest.append({
                 "patch_id": patch["patch_id"],
+                "source": source,
                 "source_tile": patch["source_tile"],
                 "split": split,
                 "terrain_type": patch["terrain_type"],
@@ -232,9 +327,13 @@ def main():
                         help="Path to the raw DFC2019 dataset folder. If not specified, searches common directories.")
     parser.add_argument("--out-dir", type=str, default="data/processed/v1",
                         help="Path to save versioned processed patches.")
-    parser.add_argument("--patch-size", type=str, default=256,
+    parser.add_argument("--patch-size", type=int, default=DEFAULT_PATCH_SIZE,
                         help="Target patch size in pixels.")
-    
+    parser.add_argument("--bhuvan-dir", type=str, default=None,
+                        help="Path to a directory of Bhuvan/Cartosat RGB images (no ground truth) "
+                             "for the Indian-terrain validation set. Kept as a separate manifest "
+                             "section, never blended into the DFC2019/US3D train/val/test split.")
+
     args = parser.parse_args()
     
     # Resolve default raw directory
@@ -264,7 +363,10 @@ def main():
     print("======================================================")
     
     # 1. Collect raw tiles
-    rgb_files = glob.glob(os.path.join(raw_dir, "rgb", "*.tif"))
+    # sorted() — glob order is filesystem-dependent, not reproducible across
+    # reruns/machines; unsorted input order would silently change which
+    # patches land in the seeded shuffle's test split
+    rgb_files = sorted(glob.glob(os.path.join(raw_dir, "rgb", "*.tif")))
     if not rgb_files:
         print(f"Error: No raw RGB files found in {raw_dir}/rgb")
         return
@@ -289,7 +391,22 @@ def main():
     
     # 3. Split and stratify
     manifest_data = split_and_stratify_dataset(all_patches, processed_dir)
-    
+
+    # 4. Bhuvan/Cartosat Indian-terrain validation samples (Chunk 4) — separate
+    # from the DFC2019/US3D pipeline, no ground truth required, own manifest section.
+    if args.bhuvan_dir:
+        bhuvan_files = sorted(glob.glob(os.path.join(args.bhuvan_dir, "*.jpg"))
+                               + glob.glob(os.path.join(args.bhuvan_dir, "*.tif")))
+        if not bhuvan_files:
+            print(f"Warning: --bhuvan-dir given but no images found in {args.bhuvan_dir}")
+        for bhuvan_path in bhuvan_files:
+            source_label = os.path.splitext(os.path.basename(bhuvan_path))[0]
+            print(f"  Processing Bhuvan/Cartosat sample: {source_label}...")
+            bhuvan_patches = patchify_rgb_only(bhuvan_path, patch_size, temp_dir)
+            manifest_data.extend(
+                build_bhuvan_manifest_section(bhuvan_patches, processed_dir, source_label)
+            )
+
     # Write manifest file
     manifest_path = os.path.join(processed_dir, "manifest.json")
     with open(manifest_path, "w") as f:

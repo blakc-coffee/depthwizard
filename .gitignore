@@ -39,10 +39,29 @@ __pycache__/
 
 # ML model weights/checkpoints
 ml/models/
+.cache/
 
-# Derived sanity-test imagery (regenerable, keeps binary bloat out of git)
+# Derived sanity-test imagery and cached raster tiles (regenerable, keeps binary bloat out of git)
 ml/depth/samples/
+ml/data/samples/
+ml/data/cache/
+
+# Raw supplementary DEM/Sentinel-2 imagery staged locally for ml/data/
+# ingest_supplementary.py — multi-GB rasters, never meant for git (see
+# docs/open_decisions.md, 2026-08-30 supplementary-data entries).
+/supplementary-data/
+/_to_delete/
 # Cargo.lock: commit it for binaries, gitignore it for libraries — see https://doc.rust-lang.org/cargo/faq.html#is-it-advisable-to-commit-cargo-lock-and-when
-data/
-# ...but frontend/src/data/ is a real source path (validation_report.json, PRD §15/§20.2), not scratch data
-!frontend/src/data/
+# Anchored to repo root — an unanchored "data/" pattern matches any dir
+# named "data" at any depth, which silently shadowed both ml/data/ (source
+# code) and frontend/src/data/ (validation_report.json, PRD §15/§20.2).
+/data/
+
+# Raw dataset downloads staged at repo root before being moved into /data/
+/Train-Track1-RGB.zip
+/Train-Track1-Truth.zip
+/Track1-RGB/
+/Track1-Truth/
+
+# Manual-review diagnostic imagery (regenerable from real patches, not for git)
+/review_samples/

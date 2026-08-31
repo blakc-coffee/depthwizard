@@ -1,7 +1,10 @@
 torch==2.13.0
+torchvision==0.28.0
 transformers==5.16.1
 pillow==12.3.0
 requests==2.34.2
 numpy==2.5.2
 datasets==5.0.1
 rasterio==1.5.1
+pytest==8.3.4
+matplotlib==3.11.1  # tools/depth_truth_diff.py's diagnostic renders only — not imported by ml/ itself
