@@ -13,10 +13,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const isMockAuth =
-  import.meta.env.VITE_USE_MOCK_API === 'true' ||
-  !import.meta.env.VITE_SUPABASE_URL ||
-  import.meta.env.VITE_SUPABASE_URL.includes('placeholder');
+const isMockAuth = import.meta.env.VITE_USE_MOCK_API === 'true';
 
 const MOCK_STORAGE_KEY = 'depthwizard_mock_session';
 
@@ -52,8 +49,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let mounted = true;
 
     async function initAuth() {
-      const savedMock = localStorage.getItem(MOCK_STORAGE_KEY);
-      if (savedMock || isMockAuth) {
+      if (isMockAuth) {
+        const savedMock = localStorage.getItem(MOCK_STORAGE_KEY);
         if (savedMock) {
           try {
             const mockSession = JSON.parse(savedMock) as Session;
@@ -68,6 +65,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (mounted) setLoading(false);
         return;
       }
+
+      // If mock auth is not active, clean up any stale mock session from localStorage
+      localStorage.removeItem(MOCK_STORAGE_KEY);
 
       try {
         const { data: { session: initialSession } } = await supabase.auth.getSession();
@@ -104,7 +104,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signInWithPassword = async (email: string, password: string) => {
-    if (isMockAuth || localStorage.getItem(MOCK_STORAGE_KEY)) {
+    if (isMockAuth) {
       if (!email || !password) {
         return { error: new Error('Please enter email and password.') };
       }
@@ -122,23 +122,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (error) {
-        // Fallback to mock session if Supabase backend is unreachable in dev/test
-        const mockSession = createMockSession(email);
-        setSession(mockSession);
-        setUser(mockSession.user);
-        localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(mockSession));
-        return { error: null };
+        return { error: new Error(error.message || 'Invalid email or password.') };
       }
 
       setSession(data.session);
       setUser(data.user);
       return { error: null };
-    } catch {
-      const mockSession = createMockSession(email);
-      setSession(mockSession);
-      setUser(mockSession.user);
-      localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(mockSession));
-      return { error: null };
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Authentication service error. Please try again.';
+      return { error: new Error(message) };
     }
   };
 
@@ -158,11 +151,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       });
 
       if (error) {
-        const mockSession = createMockSession(email);
-        setSession(mockSession);
-        setUser(mockSession.user);
-        localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(mockSession));
-        return { error: null };
+        return { error: new Error(error.message || 'Registration failed. Please check your details.') };
       }
 
       if (data.session) {
@@ -170,12 +159,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUser(data.user);
       }
       return { error: null };
-    } catch {
-      const mockSession = createMockSession(email);
-      setSession(mockSession);
-      setUser(mockSession.user);
-      localStorage.setItem(MOCK_STORAGE_KEY, JSON.stringify(mockSession));
-      return { error: null };
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : 'Registration failed. Please try again.';
+      return { error: new Error(message) };
     }
   };
 

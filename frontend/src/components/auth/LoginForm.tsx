@@ -11,13 +11,21 @@ export const LoginForm = () => {
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setErrorMessage(null);
+    setSuccessMessage(null);
 
-    if (!email.trim() || !password.trim()) {
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !password.trim()) {
       setErrorMessage('Please enter both email address and password.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setErrorMessage('Password must be at least 6 characters long.');
       return;
     }
 
@@ -25,11 +33,19 @@ export const LoginForm = () => {
 
     try {
       const { error } = isSignUp
-        ? await signUp(email, password)
-        : await signInWithPassword(email, password);
+        ? await signUp(cleanEmail, password)
+        : await signInWithPassword(cleanEmail, password);
 
       if (error) {
         setErrorMessage(error.message || 'Authentication failed. Please check your credentials.');
+        setSubmitting(false);
+        return;
+      }
+
+      if (isSignUp) {
+        setSuccessMessage('Account created! Please check your email to confirm your account or sign in.');
+        setIsSignUp(false);
+        setPassword('');
         setSubmitting(false);
         return;
       }
@@ -76,6 +92,30 @@ export const LoginForm = () => {
               />
             </svg>
             <span>{errorMessage}</span>
+          </div>
+        )}
+
+        {successMessage && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="mb-5 bg-[#ECFDF5] border border-[#A7F3D0] text-[#065F46] text-xs rounded-md p-3 flex items-start space-x-2"
+          >
+            <svg
+              className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              aria-hidden="true"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            <span>{successMessage}</span>
           </div>
         )}
 
@@ -155,6 +195,7 @@ export const LoginForm = () => {
             onClick={() => {
               setIsSignUp(!isSignUp);
               setErrorMessage(null);
+              setSuccessMessage(null);
             }}
             className="font-medium text-[#5e4cff] hover:text-[#5e4cff]/80 focus:outline-none focus:underline"
           >
