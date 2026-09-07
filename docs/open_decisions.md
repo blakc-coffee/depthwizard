@@ -108,6 +108,344 @@ Phase 4's own definition of done (`docs/phase4.md`: "`ml/pipeline.py` no longer 
 
 ---
 
+## 2026-08-31 — Texture-pattern features close part of the non-hilly R²=0.26 gap (deferred item, now resolved)
+
+**Status:** RESOLVED (2026-08-31)
+
+Picked up the item deferred in the "Texture-adaptive regressor variance" entry above: the non-hilly regressor had real headroom (R²=0.26, correlation=0.54), and the hypothesis was that the 11 existing features only capture texture *magnitude* (`depth_grad_std`), not texture *pattern* — per `ml/depth/PHASE1_NOTES.md`'s qualitative finding that forest canopy occlusion produces "blobby texture noise" distinguishable from clean structural edges.
+
+Added 2 new features to the frozen schema (no scipy/cv2/skimage installed — both pure numpy, `ml/features/extract_features.py`):
+- `depth_edge_density` — fraction of pixels whose Sobel gradient magnitude exceeds that scene's own mean+std. Decoupled from raw magnitude (which `depth_grad_std` already covers) — meant to separate "few strong isolated edges" from "same aggregate roughness spread diffusely."
+- `depth_freq_high_ratio` — fraction of 2D FFT magnitude energy in the outer 75% of frequency radius. Canopy noise reads as high-frequency-dominant with no coherent structure; clean terrain/ridgelines read as low-frequency-dominant.
+
+Third candidate from the original plan (local texture entropy) was dropped — user-approved scope cut to 2 features, since edge density + frequency ratio already cover the "pattern vs magnitude" axis and a 3rd feature would add schema churn for marginal expected gain.
+
+Appended both at the end of `FEATURE_COLUMNS` (preserves `depth_grad_std`'s index, which `calibrate.py::_DEPTH_GRAD_STD_IDX` and several tests key off by name already, so no index-based test needed fixing — only `test_calibrate.py`'s hardcoded `np.zeros(11)` literals were updated to `np.zeros(len(FEATURE_COLUMNS))`, since they were correct by accident, not by intent).
+
+**Verified on real data**, same methodology as the original R²=0.26 measurement (filter test split to `terrain_type != "hilly"`, 4536 rows): regenerated the feature cache (fast — reads already-cached depth maps, no model rerun, ~seconds for 22,909 patches), retrained the regressor, re-evaluated:
+
+| Metric | Old (11 features) | New (13 features) |
+|---|---|---|
+| Non-hilly R² | 0.26 | **0.32** |
+| Non-hilly correlation | 0.54 | 0.59 |
+| Non-hilly RMSE | — | 3.68m |
+| Non-hilly MAE | — | 1.64m |
+
+Real, honest, modest gain — not a home run, but not a no-op either (unlike the log1p-transform attempt for hilly, which was a genuine no-op).
+
+**Re-verified nothing regressed:**
+- `pytest -m slow` on `test_fusion_closes_the_hilly_gap_on_real_held_out_data` still passes against the retrained model — same held-out Nepal patch, regressor-only error 432.7m → fused 37.8m, matching the original ~91% single-patch reduction exactly. Hilly's fusion-based rescue is unaffected by the non-hilly feature addition, as expected (fusion downweights the regressor heavily for hilly regardless of which features fed it).
+- `_TEXTURE_VARIANCE_THRESHOLD`/`_TEXTURE_LOW_VARIANCE`/`_TEXTURE_HIGH_VARIANCE` in `calibrate.py` were re-measured against the retrained model's real error distribution rather than carried over: threshold unchanged (2.751 — `depth_grad_std`'s own values didn't change, only new columns were added), but both variances drifted slightly (7.226→6.965, 22.146→20.112) since the retrained model's predictions shift even for previously-seen rows. Updated in `calibrate.py`; both changes are small (~4-9%), not a sign of a broken measurement.
+
+**Resolves when:** this entry closes the deferred item. Any further non-hilly accuracy work (the R² gap isn't fully closed — 0.32 still leaves real headroom) is a new decision, not a continuation of this one.
+
+---
+
+## 2026-08-31 — Second optimization round: local entropy + auxiliary loss (near-zero gain), terrain-identity leakage ceiling measured but rejected
+
+**Status:** RESOLVED (2026-08-31)
+
+Follow-up to the entry above, after user asked "is this the best we can do" post-hoc. Three more candidates were sized and tried:
+
+**1. `depth_local_entropy` (3rd texture-pattern feature, the one cut from the first pass).** Mean Shannon entropy of the pixel-value histogram over a 4x4 grid of blocks — pure numpy, same rationale as `depth_edge_density`/`depth_freq_high_ratio` (distinguish "noise spread evenly" from "same std spent on one clean edge"). Added to `FEATURE_COLUMNS` (now 14 columns) and `FEATURE_SCHEMA.md`.
+
+**2. Auxiliary multi-task loss on `height_min`/`height_max`.** `ml/features/FEATURE_SCHEMA.md` had flagged these as "kept for later use... without needing to recompute from the raw patches" — genuinely unused until now. `HeightRegressor` gained `RegressorConfig.aux_targets`/`aux_loss_weight`; when `y_train_aux` is passed to `fit()`, the model grows extra output heads trained via `primary_loss + aux_loss_weight * mean(aux_losses)`, but `predict()`/`evaluate()` only ever surface the primary `height_mean` head — the public interface and every existing caller (`calibrate.py`, `pipeline.py`) is unchanged. Default (`aux_targets=0`, no `y_train_aux` passed) reproduces the exact old single-output architecture byte-for-byte, verified via `test_log_target_predict_returns_real_meters_not_log_space`'s direct-model-access assertion, which is shape-sensitive and would have caught a regression here. `train_regressor.py` now passes `height_min`/`height_max` from the cached CSV rows automatically.
+
+**Combined result, measured on real held-out non-hilly test data (same methodology as the first pass):**
+
+| | R² | correlation |
+|---|---|---|
+| Baseline (11 features) | 0.26 | 0.54 |
+| First pass (13 features: edge density + freq ratio) | 0.32 | 0.59 |
+| This pass (14 features + aux loss) | 0.325 | 0.596 |
+
+**Honest read: this pass was a near-no-op.** +0.005 R² is inside likely run-to-run noise (no fixed seed on this training run) — entropy and the aux heads did not meaningfully add signal on top of what edge density + frequency ratio already captured. Reporting it as a real but negligible result, not silently rounding it up to "it worked" — same honesty standard as the log1p-transform and continuous-tau attempts earlier in this project.
+
+**3. Terrain-identity leakage ceiling (diagnostic only, never deployed).** Before trying this, checked whether `terrain_type` is actually available to the real pipeline: `classify_terrain()` (`ml/data/preprocess.py`) computes it from the **ground-truth height array**, which `ml/pipeline.py` never has for a real uploaded image (that's the value being predicted); supplementary sources assign it from hand-known geography instead, equally unavailable at inference. So feeding it as a real model input would be leakage, not a deployable optimization — flagged before touching any code, per the project's "surface risks before executing" rule.
+
+Ran it anyway as a pure ceiling measurement — one-hot `terrain_type` concatenated onto the 14 real features, temporary regressor, never saved as `ml/models/regressor_v1.pt`, never added to `FEATURE_COLUMNS`:
+
+| | R² | correlation |
+|---|---|---|
+| Deployed model (no terrain) | 0.325 | 0.596 |
+| Diagnostic ceiling (terrain leaked in) | **0.449** | **0.692** |
+
+This is the biggest single number moved all session (+0.12 R², more than both real feature passes combined) — strong evidence that terrain identity carries information the current depth-map-only feature set genuinely cannot recover on its own, and that a *legitimate* (non-leaking) way to estimate terrain identity from something the pipeline actually has at inference (e.g. `ml/calibration/semantic_priors.py`'s segmentation output, already used for the semantic height prior) is the most promising lever left — bigger than another round of depth-map-only features.
+
+**Re-verified nothing regressed:** full `ml/` suite (86 tests, including the live-network/slow ones) passes. `test_fusion_closes_the_hilly_gap_on_real_held_out_data` reproduces the identical result as before (regressor-only 432.7m → fused 37.8m, same held-out patch) — the aux heads and new feature don't touch hilly's fusion-based rescue. `calibrate.py`'s texture-adaptive variance constants re-measured a second time against this retrain: threshold stable at 2.751, variances drifted <2% (6.965→6.841, 20.112→20.027) — updated for consistency, immaterial in size.
+
+**Resolves when:** this closes the "is this the best we can do" question for depth-map-only features — the honest answer is no, but the next real lever (semantic-segmentation-derived terrain proxy as a legitimate, inference-available feature) is a new, larger-scoped item, not a quick follow-on. Not started — flagging for a future session if pursued.
+
+---
+
+## 2026-08-31 — Task 2: semantic-segmentation terrain proxy closes part of the leaked-terrain gap (0.325 → 0.378 R²), done
+
+**Status:** RESOLVED (2026-08-31)
+
+Follow-on to the entry above — the leaked-`terrain_type` diagnostic showed +0.12 R² of recoverable signal (0.325 → 0.449) that no depth-map-only feature could reach because `terrain_type` is derived from ground truth and unavailable at real inference. Built the legitimate substitute: 4 new features (`semantic_building_frac`, `semantic_vegetation_frac`, `semantic_road_frac`, `semantic_other_frac`) — per-patch pixel fractions from `ml/calibration/semantic_priors.py::segment_image()`, computed from each patch's **RGB** image (a new code path in `ml/features/extract_features.py`, since `compute_depth_features()` only ever sees the depth array). This is genuinely inference-available, not leakage: `ml/pipeline.py::run_pipeline()` already runs this exact segmentation call at real inference time to build the semantic height prior.
+
+**Real-data surprise, caught before committing to the full run (exactly the pattern this project's track record predicted):** `docs/phase_optimization.md`'s planning estimate of ~0.073s/patch (~28 min full run) turned out to include one-time model-load overhead baked into a 10-patch sample — measured cold at 0.374s/patch (~143 min projected). Warming the segmentation pipeline first and re-timing on a fresh 30-patch sample gave the real number: **0.048s/patch, ~18 min projected.** Full run measured at 19.3 min (19.87 patches/s sustained) — close to the corrected estimate, not the original one. Lesson: any per-patch timing check on a lazily-initialized model must warm it up first, or the estimate will be dominated by a one-time cost that doesn't recur in the real batch.
+
+Cached to `data/processed/v1/semantic_cache/{split}/{terrain}/{patch_id}_classmap.png` (uint8 class-map PNGs, same resumable-cache convention as `depth_cache/`), wired into `build_feature_table()` (skips, reports, never fabricates a row missing either cache), `FEATURE_COLUMNS` split into `DEPTH_FEATURE_COLUMNS` (14) + `SEMANTIC_FEATURE_COLUMNS` (4) = 18 total, `ml/features/FEATURE_SCHEMA.md` updated in the same commit as the code.
+
+**Design decision made explicitly, not defaulted into:** `ml/pipeline.py::run_pipeline()` now calls `segment_image()` twice per real inference — once to build the regressor's feature vector, once inside `calibrate_scene()`'s own `_semantic_estimate()`. User chose to accept the duplicate compute (~0.07s each, not a latency problem) over refactoring `calibrate_scene()`'s signature to accept a precomputed class map, which would've also touched its existing tests for a problem that isn't costing anything yet. Marked with a `ponytail:` comment at the call site in `ml/pipeline.py`.
+
+**Measured result, retrained regressor on the new 18-feature schema, real held-out non-hilly test data:**
+
+| | R² | correlation | MAE |
+|---|---|---|---|
+| Previous (14 depth-map-only features) | 0.325 | 0.596 | — |
+| **This pass (18 features, +semantic)** | **0.378** | **0.633** | 1.563m |
+| Diagnostic ceiling (leaked terrain_type) | 0.449 | 0.692 | — |
+
+**Honest read:** a real, meaningful win — closed roughly 43% of the 0.325→0.449 gap (+0.053 of the +0.124 available) — but partial, as predicted going in: segmentation-derived class fractions are a noisier, coarser signal than the ground-truth-derived label they stand in for, so the remaining ~0.07 R² gap likely reflects segmentation-model imprecision (ADE20K keyword-mapping to 4 coarse buckets) rather than more headroom in this feature family. Not oversold as closing the gap.
+
+**Re-verified, not assumed:** full `ml/` suite now 90/90 passing (4 new tests for `compute_semantic_features`/`run_batch_semantic_extraction`, offline-mocked). `test_fusion_closes_the_hilly_gap_on_real_held_out_data` (`-m slow`, live SRTM) still passes — hilly's fusion-based rescue is untouched, as expected (fusion downweights the regressor for hilly regardless of its non-hilly feature set). `calibrate.py`'s texture-adaptive variance constants re-measured a fourth time: threshold stable at 2.751 (`depth_grad_std`'s own values are unaffected by unrelated feature columns), variances shifted 6.841/20.027 → 7.052/17.710 (new checkpoint's predictions differ slightly even on previously-seen rows, same pattern as every prior retrain this session).
+
+**Resolves when:** N/A — this closes Task 2 as scoped in `docs/phase_optimization.md`. If more non-hilly accuracy is wanted later, the next lever isn't another feature pass on this axis (segmentation-fraction noise is the likely remaining ceiling here) — it would be a better/finer segmentation model or a different signal family entirely.
+
+---
+
+## 2026-08-31 — Manual visual review found relative depth is either useful (structure) or actively wrong (flat terrain), not just "noisy"; scale-anchor grounding gate added
+
+**Status:** RESOLVED (2026-08-31) — grounding gate; manual-review folder is an ongoing tool, not a one-time artifact
+
+User asked to eyeball real samples before deciding between "accept current R²" and "build the CNN fork" (Task 3, spec-only). Generated `review_samples/` (gitignored, regenerable): 4 real held-out test patches per terrain (urban/sparse/forested/hilly), each as RGB / relative-depth / ground-truth-height side by side, plus the raw RGB alone.
+
+**What the visual check found, that the aggregate R² numbers didn't make obvious:**
+- **Urban:** relative depth picks up buildings as bright blobs that spatially align with the truth height map's building locations. Real, usable signal — matches urban being the least-bad terrain (R²=0.215).
+- **Sparse:** truth height is genuinely flat (mean≈0, std=0.04 on the sampled patch) but the relative-depth map shows a strong smooth gradient (std≈60, spanning most of the 0-255 range) across that same flat field. This is the monocular depth model (built for ground-level photos with horizon/perspective cues) hallucinating a "near-to-far" gradient on nadir aerial imagery — not weak signal, actively wrong signal. Revises the earlier read (which attributed sparse's R²≈0.009 mainly to near-zero true label variance) — the depth features are injecting noise, not just failing to add signal.
+- **Forested:** the sampled "forested" patch is visibly a residential street with trees, not canopy — consistent with the already-documented `classify_terrain()` heuristic-labeling limitation. Depth correlates with the (building-driven) truth heights here despite the mislabel. Working hypothesis, not yet confirmed: "forested" as a training bucket may be a mix of real-canopy and mislabeled-building patches with different depth↔height relationships, which would explain the terrain's positive correlation (0.562) alongside negative R² (-0.788) — a scaling/calibration problem, not a no-signal problem. Not yet quantified how much of the bucket is actually mislabeled.
+- **Hilly:** the clearest visual confirmation of the already-known information ceiling — real relief spanning 0-175m in the truth map produces relative-depth statistics (mean=69.2, std=54.2) nearly indistinguishable from sparse's totally flat field (mean=83.5, std=60.2) in the same sample set.
+
+**Real bug found and fixed as a direct result:** `ml/pipeline.py`'s absolute-height scale anchor (`scale_factor = fused_height / relative_mean`) had a `relative_mean > 1e-6` guard that never actually fires on real data — measured minimum `relative_mean` across all real held-out test patches is 0.024 (sparse), four orders of magnitude above that floor. The real explosion risk sits well above 1e-6, concentrated exactly where the visual check found the hallucinated-gradient artifact (sparse's 0.02-0.06 range): dividing a real `fused_height` by a small, physically-meaningless `relative_mean` blows `scale_factor` up into an implausible `max_height`. Fixed with two measured (not guessed) constants in `ml/pipeline.py`:
+- `MIN_RELATIVE_DEPTH_MEAN = 0.05` — just above the real per-terrain 1st-percentile range (0.10-0.25 across urban/sparse/forested/hilly on held-out test data), so it only fires on genuinely degenerate cases, not normal low-relief scenes.
+- `MAX_PLAUSIBLE_SCALE_FACTOR = 5000.0` — well above the largest real fused height this project has produced (~1263m, a real Himalayan SRTM anchor, Phase 4 Chunk 2), so it never clips a legitimate mountain-scale result.
+
+Either firing disqualifies `absolute_dsm` and falls back to `relative_dsm` with a warning — a disqualifying gate, matching `MIN_SRTM_VALID_FRACTION`'s existing pattern, not a silent clamp that would keep reporting a number nobody trusts (same honesty principle as `docs/depthwizard.md` §1). 3 new tests added to `ml/tests/test_pipeline.py` (degenerate `relative_mean`, implausible `scale_factor`, and a sanity check that a legitimate result still reaches `absolute_dsm` unblocked). Full `ml/` suite: 93/93 passing.
+
+**Resolves when:** N/A for the grounding gate — done. Two follow-ons flagged, not yet started: (1) quantify how much of the "forested" terrain bucket is actually mislabeled urban (would inform whether Task 3's CNN is worth building at all, or whether a labeling fix is the real lever); (2) decide whether Task 3 (CNN) still makes sense given the depth channel itself is unreliable for 2 of 4 terrains for terrain-dependent reasons a bigger model wouldn't obviously fix — user is holding off on Task 3 pending this and the labeling question.
+
+---
+
+## 2026-08-31 — Structure-agreement diff tool (`tools/depth_truth_diff.py`) built; real bias found is vegetation/uniform-flat-structure, not buildings
+
+**Status:** RESOLVED (2026-08-31) — tool is a durable, reusable diagnostic; the finding motivates a segmentation-model follow-on, not yet started
+
+User spotted a specific real patch (`JAX_427_012_patch_1_3`) where relative depth flagged a structure that ground truth didn't. Built `tools/depth_truth_diff.py` (repo-root tool, mirrors `tools/run_pipeline.py`'s standalone-harness convention) to check this systematically rather than by eyeballing one image: reduces both relative depth and truth height to a per-patch adaptive binary "elevated vs background" mask (mean+0.5*std, same heuristic style as `extract_features.py::_edge_density`), then diffs them into TP/FP(depth-only)/FN(truth-only)/TN. **Dataset-auditing tool only** — needs ground truth, which doesn't exist for a real user upload, so this never runs at inference time.
+
+**Initial single-patch read was wrong; the aggregate (measured across all 4,583 real test patches, cross-tabulated against Task 2's cached semantic segmentation class maps — no new model inference needed) told a different story:**
+
+| class | pixel share | FP rate | FN rate |
+|---|---|---|---|
+| building | 57.5% | **12.2%** (lowest) | **7.3%** (lowest) |
+| vegetation | 16.6% | 15.5% | 13.4% (highest) |
+| road | 3.4% | 13.5% | 4.4% |
+| other | 22.5% | **16.2%** (highest) | 7.8% |
+
+Buildings are the *most* reliable class for structure agreement, not the problem — the original flagged patch was not representative of the aggregate. Vegetation is the noisiest class in both directions (confirms Phase 1's documented canopy-occlusion finding — "blobby texture noise, not real elevation" — from an entirely different angle: structure agreement, not regression error). "Other" (the segmentation catch-all) has the single highest FP rate.
+
+**Three illustrative real examples pulled and saved to `review_samples/` (gitignored, regenerable via the tool):**
+1. `urban_OMA_251_038_patch_0_1_diff.png` — a clean flat rooftop: FP=0.3%, FN=0.1%. Confirms buildings-with-edges work well.
+2. `urban_OMA_357_010_patch_3_2_diff.png` — dense canopy (mislabeled `urban` in the manifest — a second, independent instance of the already-documented `classify_terrain()` mislabeling issue, not a new bug). Truth has real fine per-tree height texture; relative depth produces one smooth gradient with zero per-tree resolution, so the diff splits into a checkerboard along the gradient's midline — a direct visual confirmation that depth can't resolve individual-tree-scale structure at all.
+3. `urban_JAX_264_025_patch_0_2_diff.png` — **new finding, not previously documented.** A large uniform flat warehouse rooftop, unambiguously a building in the RGB and correctly ~15m in truth. Two independent failures on the same patch: (a) `ml/calibration/semantic_priors.py`'s segmentation model labeled it `other`, not `building` — a real classification miss, not a depth problem; (b) relative depth itself barely registers it as elevated (FN=44%) — a large, low-contrast, uniform-albedo rooftop gives monocular depth almost no internal edges/shadows to infer relief from, a distinct failure mode from canopy noise (canopy over-detects via texture noise; uniform flat roofs under-detect via lack of any texture at all).
+
+**Resolves when:** the segmentation misclassification (large uniform rooftops → `other` instead of `building`) is worth fixing given user's "make the classification a bit more better" request — not yet started. Candidate angles, not yet sized: (a) ADE20K keyword-mapping tweak in `_map_label_to_semantic_class` (`ml/calibration/semantic_priors.py`) if the underlying model output is labeling these something mappable-but-missed; (b) the model itself may simply not resolve large uniform industrial rooftops well (ADE20K's training distribution skews toward street-level/indoor scenes, not aerial industrial structures) — would need inspecting the raw per-segment labels the pipeline returns for this class of patch before choosing a fix, not guessed.
+
+---
+
+## 2026-08-31 — Missed-structure correction heuristic added to the rendered heightmap (frontend-facing fix for the FN finding above)
+
+**Status:** RESOLVED (2026-08-31) — heuristic shipped; its ceiling is bounded by segmentation quality, tracked as a dependency on the still-open item above
+
+User's concern: the frontend renders whatever `heightmap.png` says, so a real building that relative depth under-detects (the uniform-flat-rooftop failure mode just documented) will render as a visible hole/flat patch where a building should clearly rise — not just a regression-accuracy number, a visibly wrong output.
+
+Added `ml/calibration/semantic_priors.py::correct_missed_structures(depth, class_map, target_class=BUILDING, min_component_size=25, boost_sigma=1.0)`: labels connected components of the segmentation's building mask (pure-numpy 4-connected BFS, `_label_components` — no scipy/cv2 per this project's existing constraint), and for any component whose mean relative-depth value doesn't even clear the *scene's own average* (a real building has almost no reason to sit at or below general-scene baseline), shifts the whole component up toward `scene_mean + boost_sigma*scene_std`, preserving internal relative shape rather than flattening it to one constant value. Components under `min_component_size` (segmentation noise, not real regions) are left alone, as are components already reading above baseline (not every building needs correcting, only missed ones).
+
+**Deliberate scope boundary:** this only touches the array that becomes the rendered `heightmap.png` in `ml/pipeline.py`. The scalar calibration path (the feature vector fed to the regressor/fusion/SRTM-gate machinery) keeps using the *original, uncorrected* depth statistics — every constant measured and validated this session (texture-adaptive variance, fusion variances, the scale-anchor grounding gate) was fit against uncorrected depth features, and blending the correction in there would silently invalidate all of them without re-measuring. `ml/pipeline.py` now computes `feature_dict`/`feature_vector` from the original `depth_array` as before, and separately applies `correct_missed_structures()` (reusing the same `class_map` already computed for Task 2's semantic features — no extra segmentation call) to build `heightmap_array`, which is what actually gets saved. The heightmap save itself moved from immediately after Stage A to the end of `run_pipeline()`, since it now depends on Stage B's segmentation output when calibration is available (falls back to the uncorrected array, same as before, when no regressor checkpoint exists).
+
+**Real, measured limitation, not a hidden gap:** this heuristic is only as good as the segmentation mask it's given. Demonstrated directly on the same `JAX_264_025_patch_0_2` warehouse-rooftop patch from the entry above: with the *current*, buggy segmentation (which mislabels most of that rooftop as `other`), the correction only reaches 12,341 px; simulating what segmentation *should* have said (using truth's own elevated region as a stand-in, `review_samples/urban_JAX_264_025_patch_0_2_correction_demo.png`) correctly boosts 42,028 px and visibly restores the rooftop's shape in the rendered heightmap. **This heuristic's real-world value is capped by the still-open segmentation-classification bug above** — fixing that bug will make this correction cover more real missed buildings for free, without touching this function again.
+
+7 new tests (`ml/tests/test_calibration.py::TestMissedStructureCorrection`) cover: a missed building gets boosted, an already-elevated one is left alone, tiny/noise-sized components are ignored, non-target classes are never touched, and a no-building scene is a no-op. Full `ml/` suite: 98/98 passing.
+
+**Resolves when:** N/A for the heuristic itself — done, shipped, tested. Its practical ceiling resolves when the segmentation-classification bug (entry above) is fixed — that's the next planned step, not a separate open item.
+
+---
+
+## 2026-08-31 — Segmentation classification fixed: ADE20K interior-object labels remapped to BUILDING (domain-specific)
+
+**Status:** RESOLVED (2026-08-31) for the keyword-mapping fix; OPEN follow-on for whether to regenerate the trained feature cache
+
+Root-caused the misclassified-rooftop bug from the two entries above by inspecting the segmentation model's raw per-segment output (not guessed): on the flagged `JAX_264_025_patch_0_2` warehouse rooftop, the model returned exactly 3 segments for the whole patch — `wall` (18.9%, correctly mapped to BUILDING), `ceiling` (35.6%), `windowpane` (45.4%) — the latter two ADE20K *interior-object* labels, falling to OTHER by the old keyword map. The model (trained on ADE20K's largely indoor/street-level scene distribution) is reading a flat, light-colored rooftop as a room interior. Measured across 25 real urban test patches before changing anything: `mountain`/`earth`/`rock`/`water`/`truck`/`floor` also fall to OTHER but are legitimately non-building even in this domain — left alone. `window`/`door`/`ceiling`/`cabinet`/`mirror`/`escalator` are the interior-object cluster, added to `ADE20K_BUILDING_KEYWORDS` (`ml/calibration/semantic_priors.py`) with an explicit comment on why this is safe *only* because DepthWizard's pipeline never segments real indoor imagery — if that ever changes, this keyword set needs reconsidering.
+
+**Real effect, measured, not assumed — before/after on the same 25 real urban test patches, fresh (uncached) segmentation calls:**
+
+| class | before | after | delta |
+|---|---|---|---|
+| building | 51.3% | 56.5% | **+5.2%** |
+| vegetation | 21.1% | 21.1% | 0.0% |
+| road | 1.9% | 1.9% | 0.0% |
+| other | 25.6% | 20.4% | **-5.2%** |
+
+Clean, targeted move — vegetation and road shares are untouched, confirming the fix isn't bleeding into classes it shouldn't touch.
+
+**One real caveat found and reported honestly, not swept under the rug:** on the specific flagged patch, the segmentation model's own proposals covered ~100% of the image with just those 3 segments — meaning it never separately detected the visible highway/road in that image at all (a distinct, deeper failure: a missing segment proposal, not a taxonomy/keyword problem). Since the keyword fix maps `ceiling`/`windowpane` to BUILDING wherever they appear, and this particular image's road pixels happened to fall inside those masks, the fix incidentally reclassified that image's road portion from OTHER (~0m prior, roughly right) to BUILDING (~10m prior, wrong). The 25-patch aggregate above shows this is not systemic (road share unchanged across the sample) — this was a one-off case where the model simply failed to propose any road segment for that specific image, and no keyword-mapping change can fix a missing segment proposal. Flagging this as a known, rare failure mode rather than claiming the fix is unconditionally safe.
+
+7 new tests (`ml/tests/test_calibration.py`: `test_interior_object_labels_map_to_building_not_other`, `test_legitimately_non_building_labels_still_map_to_other`, plus 5 for `correct_missed_structures` from the entry above — counted once). Full suite: 100/100 passing.
+
+**Resolves when (OPEN follow-on):** the trained regressor's 18-feature checkpoint (`ml/models/regressor_v1.pt`) and the cached `semantic_building_frac`/`semantic_other_frac` features (`data/processed/v1/semantic_cache/`, 22,909 patches) were both built against the *old* keyword mapping — this fix only affects fresh/live `segment_image()` calls (used by `calibrate_scene()` and `correct_missed_structures()` at real inference time), not the already-cached training data. Regenerating the cache + retraining is the same ~19-minute-batch-plus-retrain cost as Task 2's original run — not done yet, flagged for an explicit decision rather than assumed, since it's a real cost and the R²=0.378 baseline would need re-measuring against it either way.
+
+---
+
+## 2026-08-31 — Semantic cache regenerated + regressor retrained on the ADE20K keyword fix: mixed result, honestly reported
+
+**Status:** RESOLVED (2026-08-31) — closes the OPEN follow-on above
+
+Regenerated `data/processed/v1/semantic_cache/` (deleted and rebuilt, ~24min: depth resumed as a no-op, only the semantic batch reran) and retrained `ml/models/regressor_v1.pt` against the corrected `semantic_building_frac`/`semantic_other_frac` features. Same 18-column schema, no code changes to the feature/training pipeline — only the underlying segmentation labels changed.
+
+**Result is a mixed win, not a clean one — reported straight, matching this project's standing practice of not spinning a partial result:**
+
+| | R² (pooled non-hilly) | corr | urban R² | sparse R² | forested R² | hilly R² |
+|---|---|---|---|---|---|---|
+| Before (buggy keyword map) | 0.378 | 0.633 | 0.215 | 0.009 | -0.788 | -2.808 |
+| **After (fixed keyword map)** | **0.364** | **0.621** | **0.186** | **0.050** | **-0.513** | -2.844 |
+
+Forested — the terrain the keyword fix specifically targeted (mislabeled rooftops living in a bucket nominally about canopy) — improved meaningfully (R² -0.788 → -0.513, real movement in the intended direction). Sparse ticked up slightly. But urban *dropped* (0.215 → 0.186), and the pooled non-hilly number went down overall (0.378 → 0.364) because urban has the largest test-set share (2245 of 4536 non-hilly rows) and outweighs forested's gain in the pooled average. Hilly unchanged within noise (still the known information ceiling, unaffected by a non-hilly-focused fix as expected).
+
+**Why urban likely regressed, not confirmed further this session:** cleaner building/other separation shifts the *distribution* of `semantic_building_frac` for scenes that were previously miscategorized — some urban scenes that used to read as partly `other` (diluting their building fraction toward a value the model had implicitly learned to associate with something else) now read as more purely `building`, and the regressor's learned mapping for that feature region may not have been retrained on distribution enough to adapt cleanly with only ~13,743 training rows. Plausible, not verified — flagging as a hypothesis, not a finding.
+
+**What this means going forward:** the segmentation fix is still worth keeping — it's measurably correct (25-patch validation in the entry above showed real, targeted improvement with no bleed into unrelated classes), and it directly improves `correct_missed_structures()`'s real-world coverage regardless of what it does to the regressor's R². But it is NOT a free win for the regressor's accuracy — don't report "R² improved" from this change; the honest framing is "one real terrain-labeling bug fixed, with a small, not-fully-understood regression elsewhere that nets out roughly flat overall."
+
+Re-verified: `test_fusion_closes_the_hilly_gap_on_real_held_out_data` (`-m slow`) still passes — hilly's fusion rescue unaffected, as expected. `calibrate.py`'s texture-adaptive constants re-measured: threshold stable at 2.751 (unaffected, as with every prior retrain), variances shifted 7.052/17.710 → 6.537/18.778. Full `ml/` suite: 100/100 passing.
+
+**Resolves when:** N/A — done. If urban's regression is worth chasing further, the next step (not started) would be checking whether it's specifically the `semantic_building_frac` feature driving it (e.g. by comparing urban-only feature distributions before/after the keyword fix), not re-guessing from aggregate numbers alone.
+
+---
+
+## 2026-08-31 — Flat-pavement-as-`wall` false positive: investigated, no cheap fix found, deliberately skipped
+
+**Status:** CLOSED, not fixed — real, understood, low-priority
+
+Found while sanity-checking the forested-mislabeling investigation: the segmentation model's `wall` label (pre-existing, not part of this session's keyword fix) fires on flat, uniform runway/parking-lot pavement, not just real building walls — confirmed visually on `OMA_059_026_patch_1_0` (74.6% `wall`) and `OMA_142_032_patch_1_3`, both genuinely flat paved surfaces with road markings, not buildings.
+
+**Investigated and rejected three candidate fixes, each measured, not guessed:**
+1. **Confidence-score filtering** — the HF segmentation pipeline returns `score=None` for every segment; no confidence signal exists to filter on.
+2. **Label-vocabulary filtering** — even the known-good building patch (`OMA_251_038_patch_0_1`, the near-perfect correction-heuristic example) returns nonsense ADE20K labels too (`floor`, `curtain`, `bathtub`) alongside `wall`. The raw label vocabulary is noisy on real buildings and pavement alike — can't gate on "does it return a weird label," both classes do.
+3. **Color/texture heuristic cross-check** (using the existing `_heuristic_color_segmentation` road-detection thresholds as a sanity check on the neural model's building calls) — measured whole-patch color_std/brightness for 3 known pavement false-positives (std 4.3-7.0, brightness 146-183) against 3 known real buildings (std 3.1-5.4, brightness 100-208): **the ranges overlap**. Flat concrete pavement and flat concrete/light rooftops are genuinely close to indistinguishable in RGB color statistics from directly overhead.
+
+**Scale measured before deciding whether to invest further:** 574 patches (2.5% of the full 22,909-patch trainable set), **entirely confined to `sparse`** terrain (0 in forested/urban/hilly), which already has near-zero R² (0.009→0.050 across this session's changes) — little practical accuracy to lose or gain either way.
+
+**Decision:** skip. Given no cheap, reliable signal exists (score, label, or color/texture) and the affected population is small and already low-accuracy, forcing a narrow heuristic (e.g. hunting for parking-line markings as a road-specific cue) was assessed as more likely to be a shaky, overfit patch than a real fix — user chose not to pursue it further. This may be a smaller instance of the same information-ceiling pattern as hilly: some real-world distinctions (flat pavement vs. flat rooftop, viewed from directly overhead) may not be recoverable from RGB+depth alone without additional context (surrounding scene, real elevation, or a model actually trained on this domain).
+
+**Resolves when:** revisit only if (a) a future model swap (e.g. a domain-appropriate segmentation model, not ADE20K-pretrained) naturally fixes this as a side effect, or (b) sparse's accuracy becomes a priority for a reason unrelated to this specific bug.
+
+---
+
+## 2026-08-31 — Forested-bucket relabeling: correction to my own prior claim before starting
+
+**Status:** context note, not a decision log entry — see the entry immediately after for the actual work
+
+Before starting the forested relabeling work, caught and corrected an overstated claim from earlier in the session: `terrain_type` is confirmed (by code inspection) to be **metadata-only** — it appears in `METADATA_COLUMNS`, never in `FEATURE_COLUMNS`, and is used only for cache file paths and reporting groupings (`ml/features/extract_features.py`). Relabeling mislabeled forested patches does **not** change any row's actual features, label, or the regressor's predictions — it only changes which per-terrain bucket a patch's existing (unchanged) prediction error gets counted under. The value of this work is **evaluation honesty**, not a model-accuracy lever. Flagging this explicitly so the relabeling work below isn't mistaken for a performance fix — it's a data-hygiene fix that makes forested's reported R² meaningful for the first time, nothing more.
+
+---
+
+## 2026-08-31 — Forested-bucket relabeling executed: 5,762 patches moved, revealed genuine canopy is worse than the mixed bucket suggested
+
+**Status:** RESOLVED (2026-08-31)
+
+Built `tools/relabel_mislabeled_forested.py` — a one-off, dry-run-capable migration that reclassifies `forested`->`urban` for patches meeting all three (conservative, defense-in-depth) criteria: `semantic_building_frac >= 0.5`, `semantic_vegetation_frac < 0.2`, and real truth-height relief `>= 2.0m` (the relief floor specifically guards against the flat-pavement-as-`wall` false positive from the entry two above — confirmed unnecessary in practice since that bug is 100% confined to `sparse`, never `forested`, but cheap insurance for a bulk file-moving operation). Backed up `manifest.json` before mutating (`manifest.json.bak_relabel_applied`, plus a dated backup made before running anything).
+
+**Dry run first, then applied:** 5,762 of 8,681 forested patches (66.4%) flagged and moved — raw RGB tif, raw truth tif, cached depth PNG, and cached semantic classmap PNG, all four files per patch, from their `forested` subdirectory to `urban` (23,048 file moves total). Verified before/after: total cache PNG count unchanged (45,818), total trainable patch count unchanged (22,909), and the terrain-count delta matches exactly (`urban` 11,217->16,979 [+5,762], `forested` 8,681->2,919 [-5,762]) — no files lost or duplicated. Split proportions preserved (patches moved within their existing train/val/test split, never across).
+
+**Re-evaluated the existing checkpoint — no retrain needed, and none was run,** since (per the note above) `terrain_type` isn't a model input; pooled non-hilly R² came back byte-identical (0.3641 before and after), confirming that claim empirically, not just from code inspection.
+
+**The honest per-terrain picture, real held-out test data, same checkpoint:**
+
+| terrain | before relabel | after relabel |
+|---|---|---|
+| urban | R²=0.186 (n=2245) | **R²=0.3105** (n=3432) |
+| forested | R²=-0.513 (n=1736) | **R²=-0.9593** (n=549) |
+| sparse | R²=0.050 (n=555) | unchanged (not touched) |
+| hilly | R²=-2.844 (n=47) | unchanged (not touched) |
+
+Urban's honest R² is substantially better than its previously-reported number once it correctly absorbs patches that were always predicted well but wrongly attributed elsewhere. **Forested got worse, not better** — and this is the important, sizeable finding: the old mixed bucket's -0.513 was propped up by the well-predicted (mislabeled) buildings inside it. Stripped down to genuinely real canopy, the number is -0.9593 — meaningfully worse than the mixed figure implied. This is now believed to be a real, structural limit specific to canopy, consistent with Phase 1's own documented finding (`ml/depth/PHASE1_NOTES.md`: canopy occlusion produces "blobby texture noise, not real elevation") — not as extreme as hilly's absolute-scale-blindness ceiling, but a real, separate information-ceiling-shaped problem for genuine tree canopy, now visible for the first time because the bucket it's measured in is finally clean.
+
+Re-verified: `test_fusion_closes_the_hilly_gap_on_real_held_out_data` (`-m slow`) still passes — untouched by this, as expected (hilly patches were never forested). Full `ml/` suite: 100/100 passing (no test hardcodes forested/urban patch counts, so nothing broke structurally).
+
+**What this means for Task 3 (CNN):** sharpens the picture rather than resolving it. Forested's badness is now understood to be *partly* real-canopy-information-ceiling (like hilly, though less extreme) and *partly* was label noise (now fixed). A CNN wouldn't be expected to fix the canopy-ceiling part any more than it fixes hilly's — but urban's newly-revealed R²=0.3105 (its honest, uncorrupted number) suggests the non-canopy, non-hilly terrain types have more real headroom than previously visible, since urban's true signal was being diluted by misattributed rows in the old evaluation. Worth re-deciding Task 3 with this cleaner baseline rather than the pre-relabel numbers.
+
+**Resolves when:** N/A — the relabeling itself is done. `tools/relabel_mislabeled_forested.py` is kept in the repo as a reusable, re-runnable migration (idempotent — a second run finds 0 remaining forested patches meeting the criteria) in case new data is ingested into the forested bucket later via the same flawed `classify_terrain()` heuristic.
+
+---
+
+## 2026-08-31 — Post-fix verification found a new, distinct correction-heuristic failure mode (small, real, honestly reported)
+
+**Status:** OPEN (documented limitation, not blocking) — real severity assessed as low
+
+Re-ran `correct_missed_structures()` on `JAX_264_025_patch_0_2` (the flagged warehouse-rooftop patch) against the *real* current segmentation cache (not the earlier simulated-best-case demo). The keyword fix does now correctly tag the whole scene's `wall`/`ceiling`/`windowpane` segments as BUILDING (100% building_frac, up from ~19%) — real progress, matches the earlier 25-patch validation. But this specific patch's segmentation model still only ever proposed 3 segments for the *entire* image (unchanged from before — this was never a labeling problem, it's a missing-segment-proposal problem, already flagged as unfixable by keyword mapping two entries above). Since `wall`/`ceiling`/`windowpane` now all map to BUILDING, and those 3 segments together cover ~100% of the image including the visible highway, `correct_missed_structures()` treats the *entire scene* as one connected "building" component and applies one uniform boost to it — visibly brightening the real rooftop (correct) but also the adjacent highway (wrong), since the function has no way to know the segmentation model silently merged two physically different surfaces into one blob.
+
+**This is a distinct failure mode from what was fixed, not a sign the fix didn't work:** before, the bug was "segmentation mislabels the building as `other`" (fixed). Now, the residual bug is "segmentation doesn't separate the building from the adjacent road within its own segment proposals at all" (not fixed, not fixable by keyword mapping — same root cause as the previously-logged missing-road-proposal issue, just now visible through a different function).
+
+**Severity assessed as low, not chased further:** this only manifests when segmentation fails to produce *any* separate road segment for a scene — measured earlier as rare, not systemic (the 25-patch aggregate showed road's pixel share unchanged by the keyword fix, meaning most scenes DO get a proper road proposal). `correct_missed_structures()`'s existing `min_component_size` guard doesn't help here since the merged blob is large by construction, not noise-sized.
+
+**Resolves when:** if this turns out to matter in practice (not measured at scale, only observed on the one patch that originally flagged the whole investigation), the real fix is a genuinely better/finer segmentation model — no code-level heuristic in `correct_missed_structures()` can distinguish "one big real building" from "a building blob that silently swallowed an adjacent road" using only the class map it's given, since both look identical to the function (one large connected BUILDING region).
+
+---
+
+## 2026-08-31 — Dense DSM fusion built: SRTM-as-trend + relative-depth-as-detail, ~29x per-pixel RMSE reduction on real data
+
+**Status:** RESOLVED (2026-08-31) — full spec: `docs/dense_dsm_fusion.md`
+
+User's proposal, sharpened through discussion: the dense (per-pixel) `absolute_dsm` output previously used SRTM only as a single scalar to uniformly rescale relative depth's own shape — discarding SRTM's real, if coarse (~30m/pixel), spatial detail entirely, and structurally vulnerable to propagating a hallucinated relative-depth shape (the sparse flat-gradient bug, documented above) even when the scalar anchor was numerically correct.
+
+**Built `ml/calibration/dense_fusion.py`:** SRTM supplies the low-frequency trend (nearest-neighbor resample onto the output grid — deliberate, avoids blending real values across void boundaries the way bilinear would); relative depth supplies only its own high-frequency detail (its own trend, matched to SRTM's native spatial resolution via a downsample/upsample low-pass filter, removed first so it never fights or duplicates SRTM's real trend); the two are summed where SRTM has real coverage, with today's existing uniform-rescale formula as an honest per-pixel fallback where SRTM is void. Reuses the *existing* scalar `scale_factor` (`fused_height / relative_mean`) to convert the detail component into meters — does not invent a second, independent scale computation.
+
+**Wired into `ml/pipeline.py`** on the `absolute_dsm` branch only (confirmed via full contract-doc check: `dsm_path` — "GeoTIFF, absolute results only" — and `confidence_map_path` were both already-defined-but-always-`None` fields in `docs/depthwizard.md` §9.8, so this is additive, not a breaking change to the existing `heightmap_path`/metadata contract). `heightmap_path`'s bytes and the existing linear min/max metadata contract are completely untouched — the new fused, non-linear result lives in the new `dsm_path` GeoTIFF exclusively. `confidence_map_path` gets a per-pixel provenance map (255=SRTM-measured, 76=model-predicted infill), and a warning summarizes the coverage split when SRTM has any void. `fetch_srtm_elevation()` is called a second time in `ml/pipeline.py` (disk-cached, so a cache hit, not a real second network round-trip) — same accepted-duplicate-call tradeoff already made for `segment_image()` in Task 2, not a signature refactor of `calibrate_scene()`.
+
+**Real, measured result — not assumed:** the honest test-population constraint (only the ~231 hilly supplementary patches have real geo bounds in this dataset; DFC2019 structurally never does) was stated up front in the spec, not discovered after the fact. On the real held-out Nepal hilly test patch (`nepal_patch_12_4`), live SRTM fetch, 100% SRTM coverage:
+
+| method | per-pixel RMSE against real truth |
+|---|---|
+| old (uniform rescale of relative depth's shape) | 289.9m |
+| **new (SRTM trend + relative detail)** | **9.9m** |
+
+A ~29x reduction — well beyond what the spec's own acceptance bar required (it only asked the new method not be *substantially worse*; the actual result far exceeded that). This is the clearest confirmation yet that relative depth's own shape was actively wrong at the coarse scale for hilly terrain (consistent with every other hilly finding this session), and that letting SRTM's real trend dominate there — instead of a uniformly-rescaled but structurally-unreliable relative shape — is a large, real win, not a marginal one.
+
+**Full end-to-end production verification, not just the unit-level slow test:** cropped a real 256×256 georeferenced window from the raw Nepal Sentinel-2 source tile (`supplementary-data/sentinel-2/sentinel2_nepal_TCI.tif`, real EPSG:32645 CRS) and ran it through `tools/run_pipeline.py` (the actual standalone production harness, not a mocked test) end to end: `output_type="absolute_dsm"`, `dsm_path` and `confidence_map_path` both populated with real, valid files, contract check passed. The written GeoTIFF has real EPSG:4326 coordinates matching the real Nepal location (84.45°E, 28.44°N), plausible Himalayan elevation range (-0.96m to 1426m, mean 759m), and the confidence map correctly reads 100% SRTM-measured for this fully-covered scene.
+
+**Tests:** 8 fast synthetic-array unit tests (resample nearest-neighbor correctness, NoData handling, detail extraction, fallback-on-void, GeoTIFF round-trip, confidence-map encoding) + 1 `@pytest.mark.slow` real-data RMSE comparison + 2 `ml/tests/test_pipeline.py` tests (dense fields populate on a grounded absolute result; dense fields stay `None` for non-georeferenced input). One test-hygiene catch during this work: an initial version of the "stays None" test accidentally invoked the real depth+segmentation models a 3rd time in `test_pipeline.py` (duplicating existing coverage), ballooning that file's runtime from ~19s to ~16 minutes — fixed by using the same lightweight mocking pattern as the grounding tests instead. Full `ml/` suite: 110/110 passing.
+
+**Resolves when:** N/A — done, verified at both the unit and real-production-harness level. If broader validation across more hilly patches (not just the one real geo-bounded patch this session tested) becomes worth the effort later, that's a natural follow-on, not a blocker — the single real patch tested here already shows a result far larger than measurement noise would explain.
+
+---
+
+## 2026-08-31 — HARD FLAG (OPEN, deliberately deferred): no large-image tiling/stitching exists anywhere in the pipeline
+
+**Status:** OPEN — explicitly deferred by user decision. **Do not start this until backend integration is done.** Logged now, in full, so it isn't lost or re-discovered from scratch later.
+
+**The problem, precisely.** Every stage of `ml/pipeline.py::run_pipeline()` runs on the input image as a single shot, at whatever resolution it happens to be, with no tiling, no size cap, and no explicit downsizing anywhere in the code:
+
+- `ml/utils/texture_export.py::export_texture()` — no resize logic at all (checked: no `resize`/`max_size`/`thumbnail`/`tile` in the file). A GeoTIFF's full native resolution is exported straight to PNG.
+- `ml/depth/backbone.py::estimate_relative_depth()` — calls the HF `depth-estimation` pipeline directly on the full-resolution image with no pre-resize.
+- `ml/calibration/semantic_priors.py::segment_image()` — same pattern, no pre-resize before the HF `image-segmentation` pipeline call.
+
+**Why it doesn't crash, but is still broken.** HF's pipelines internally downsize to the model's native inference resolution (Depth Anything V2's is roughly ~518px), run the model, then upsample the single prediction back to the original input's dimensions before returning it. So a huge image (confirmed by direct measurement this session: the raw Nepal Sentinel-2 source tile is 10980×10980) will not OOM or crash — but the returned depth/segmentation map has no more real spatial information in it than a ~518×518 prediction stretched to fit. **This is a silent quality collapse, not a loud failure** — nothing in the current code detects or warns about it. A large real satellite scene would come back as a smooth, information-poor blur with none of the real per-building/per-structure detail a tiled approach could preserve, and the pipeline would report success with no indication anything degraded.
+
+**Second, independent problem: `export_texture()` producing a huge PNG.** For the same 10980×10980 case, the exported "web-renderable" texture would itself be enormous — directly contradicting `docs/depthwizard.md` §9.8's own stated requirement that `texture_path` be a browser-decodable, web-renderable PNG. This needs solving even independent of the depth-quality problem above (could need its own downsize step regardless of whether tiling is built for the depth/segmentation side).
+
+**Third, a concrete bug found in code shipped *this session*, not a hypothetical:** `ml/calibration/semantic_priors.py::_label_components()` (backing `correct_missed_structures()`, added 2026-08-31 in this session's work) is a pure-Python BFS over every pixel, explicitly commented and designed around the assumption "Patches are 256x256 max, so a plain BFS is fast enough (no need for a proper union-find)." That assumption is false for a real large production upload — a huge image with large connected building regions would make this function genuinely slow (a real performance bug, not a correctness one) at a scale nothing in this codebase has been tested against. Any tiling work must either revisit this function's algorithm (e.g. a real union-find, or bounding the component search per-tile) or ensure it only ever runs per-tile on bounded-size inputs, never on a whole huge image at once.
+
+**What a real fix needs to decide (not yet designed, flagging the open questions, not answering them):**
+1. **Tile size and overlap.** Depth/segmentation models have their own native inference resolution (~518px for Depth Anything V2) — tile size should likely be chosen relative to that, not arbitrarily, so each tile gives the model real detail to work with rather than being downsized again internally.
+2. **Seam-blending/stitching strategy.** Naively concatenating independently-inferred tiles produces visible seams (a well-known failure mode in tiled depth/height estimation) — needs real overlap + blending (e.g. cosine/linear-ramp weighted blending in overlap regions), not a naive crop-and-paste.
+3. **Where SRTM/absolute calibration fits in for a tiled large image.** The scalar calibration path (`calibrate_scene()`) and the new dense fusion (`ml/calibration/dense_fusion.py`) both currently assume one `geo_bounds` covering the whole image — a tiled approach needs either one calibration pass over the whole stitched result, or a per-tile calibration strategy that stays consistent across tile boundaries (an inconsistent per-tile scale anchor would itself create visible seams in the absolute output, on top of any depth-map seam issue).
+4. **`_label_components()`'s algorithm** needs revisiting for large-scale correctness/performance once tiling exists (see above) — likely needs to run per-tile, not on a full large stitched image, or be replaced with a real union-find.
+5. **Backend/worker implications** (timeout, memory, task chunking for a multi-tile job) are explicitly out of `ml/`'s scope per its own standalone-module convention, but whoever designs backend integration needs to know this is coming — a large-image job may need to become a multi-step/chunked Celery task, not a single synchronous call, which is exactly why this is deferred until backend integration lands first.
+
+**Resolves when:** backend integration is complete (per explicit user sequencing decision, 2026-08-31) and this becomes the next active work item. When picked back up, write a proper spec (same treatment as `docs/dense_dsm_fusion.md`) before building — this entry is the flag, not the design.
+
+---
+
 ## 2026-08-30 — `ml/pipeline.py` duplicates `integration/contracts.py`'s `PipelineResult`
 
 **Status:** OPEN (left as-is, not a bug — flagging for awareness)
@@ -235,3 +573,66 @@ User narrowed the supplementary-data pull to hilly regions only (dropping the sp
 Also pulled `sentinel2_wyoming_n41w106_TCI.tif` back out of `supplementary-data/sentinel-2/` — this is the same non-overlapping candidate already logged as OPEN above (covers 41.5–42.5°N vs the DEM's 40.0–41.0°N). It should not be presented as a matched pair; the Wyoming 3DEP DEM tile is currently unpaired with any RGB. Resolves the same way as the existing open item: source a correctly-bounded Sentinel-2 tile for 40–41°N / -106..-105°W.
 
 Stray duplicate raw tiles that had been left loose at the repo root (outside `supplementary-data/`) from the original download were moved to `_to_delete/` at the repo root rather than deleted outright (this session has no delete permission on the connected folder) — user should review and delete that folder.
+
+---
+
+## 2026-08-31 — Phase 5 Chunk 1: manifest patch files have no persisted CRS at all, even the georeferenceable ones — `evaluate.py` burns bounds onto a temp copy rather than touching `pipeline.py`
+
+**Status:** RESOLVED (2026-08-31)
+
+`ml/pipeline.py::run_pipeline()`'s georeferencing check (`_is_georeferenced()`/`_get_geo_bounds()`) reads `src.crs` directly off the input file. Confirmed by inspection (`rasterio.open()` on a real `hilly`/`copernicus_dem` test patch) that **no manifest patch file carries a real CRS/transform on disk, including the georeferenceable ones** — `ml/calibration/patch_geo.py`'s own docstring already flagged this for supplementary ingestion ("never wrote a transform onto the individual patch files"), but this confirms it's universal: calling `run_pipeline()` unmodified on any `rgb_path` would take the `relative_dsm` branch for literally every test patch, including hilly, making Chunk 1's whole `absolute_dsm` accuracy measurement impossible.
+
+Two ways to close this: (a) give `run_pipeline()`/`PipelineResult` an optional geo-bounds-override parameter so callers can inject known bounds, or (b) leave `run_pipeline()`'s frozen signature untouched and instead make `evaluate.py` hand it something that already looks like a real georeferenced upload — a temp copy of the patch's RGB tif with `ml/calibration/patch_geo.py::get_patch_bounds()`'s analytically-recovered WGS84 bounds burned into a real `rasterio` transform+CRS before the file ever reaches `run_pipeline()`.
+
+**Took (b).** It's the more honest read of "run the real, complete pipeline" (Chunk 1's own stated design principle) — it exercises `_is_georeferenced()`/`_get_geo_bounds()` exactly as they'd behave against any real georeferenced upload, with zero special-casing inside `pipeline.py` itself, and it doesn't touch the frozen `PipelineResult`/`run_pipeline()` contract Chunk 4 is explicitly supposed to freeze. DFC2019 patches (the 98.9% majority) are left completely unmodified, since they are correctly, permanently non-georeferenceable and must exercise the real `relative_dsm` fallback path, not a synthetic one.
+
+**Resolves when:** N/A — this is how `evaluate.py` works going forward. If `ml/data/ingest_supplementary.py` is ever changed to persist a real transform onto patch files at ingestion time, this workaround becomes unnecessary but stays harmless (writing the same real bounds onto an already-georeferenced file is a no-op).
+
+---
+
+## 2026-08-31 — Phase 5 Chunk 1: full test-split run — 47/4,583 patches reached `absolute_dsm` (99.0% excluded, honest per the original spec), pooled hilly RMSE 48.7m dragged up by 2 real outlier patches
+
+**Status:** OPEN (flagged, not fixed — out of scope for Chunk 1 per `docs/phase5.md`)
+
+Full real `run_pipeline()` pass over all 4,583 test-split patches (37min actual, vs. a 2.5hr small-sample projection — the projection's per-patch cost was inflated by amortizing one-time model load over only 4 patches). 0 errors. Only `hilly` patches (47 of them — all from supplementary sources) ever reach `absolute_dsm`; `urban`/`sparse`/`forested` (DFC2019, 4,536 patches) correctly fall back to `relative_dsm` and are excluded from accuracy scoring, not silently dropped (99.0% excluded, reported explicitly).
+
+Pooled: RMSE=48.72m, MAE=17.12m, r=0.965 (n=47 scenes, 2,522,220 pixels). This number is not representative of the typical case — 45/47 patches individually score 3-30m RMSE (matches the 9.9m single-patch result Phase 4 already validated), but 2 patches are real large outliers: `sierra_nevada_patch_7_17` (pred 490.6m vs. truth 233.8m, RMSE 256.9m) and `scotland_patch_2_0` (pred 693.3m vs. truth 417.8m, RMSE 275.7m). Re-ran both through `run_pipeline()` directly to check the cause: neither failed the `MIN_SRTM_VALID_FRACTION` gate (both reached `absolute_dsm` normally) — both carry the same "confidence=0.39, anchored primarily to SRTM" warning as every other hilly patch, so this isn't an SRTM-void/coverage problem. Root cause not yet isolated (candidates: a real SRTM data-quality/geolocation issue specific to those two tiles, or `dense_fusion.py`'s trend/detail frequency-matching assumption breaking down on unusually steep real relief) — not investigated further, since root-causing this is outside Chunk 1's scope (`docs/phase5.md`: "already-logged gaps... out of scope for this phase to fix, only to report honestly if they show up in results"). Median/typical-case framing (not the outlier-dragged pooled mean) is the honest number to lead with in Chunk 2's writeup.
+
+**Resolves when:** whoever picks up dense-fusion accuracy work next isolates why these 2 of 47 real patches have a ~10-25x larger error than the rest — check the raw SRTM tile for `sierra_nevada` (7,17) and `scotland` (2,0) specifically before assuming it's a `dense_fusion.py` bug.
+
+**Update (Chunk 2):** `evaluate.py`'s JSON-packaging step flags outliers programmatically (>5x this run's own median RMSE, not a fixed meter threshold) rather than hardcoding these two — that threshold also catches a 3rd, smaller outlier: `tuscany_patch_14_2` (RMSE 67.2m). Re-ran the full 4,583-patch pass a second time (independently, for the JSON-packaging step) and got byte-identical per-patch numbers to this entry's original run — confirms the pipeline is deterministic, not a fluke of one run.
+
+---
+
+## 2026-08-31 — Phase 5 Chunk 3: Bhuvan/Cartosat — no quantitative claim possible (confirmed, not new), but the flat-terrain depth hallucination reproduces on real Indian imagery; missed-structure correction fired on ~83% of pixels (unusually high, cloud-related, not investigated further)
+
+**Status:** OPEN (flagged, not fixed — out of scope for Chunk 3)
+
+Only one real Bhuvan/Cartosat sample exists on disk (`ml/depth/samples/bhuvan_cartosat_sample.jpg`, 1500×1500 JPEG, no CRS), with no paired reference elevation — confirmed by design, not an oversight (`ml/data/download_datasets.py::add_bhuvan_sample()`'s own docstring: "No paired ground truth is required"). Full writeup: `docs/bhuvan_cartosat_validation.md`.
+
+Ran the real `run_pipeline()` on it: correctly took the `relative_dsm` path (JPEG can't carry geo-metadata). Two real findings from the qualitative visual result:
+
+1. The already-documented "flat-terrain hallucinated smooth gradient" failure mode (see the `ml/depth/backbone.py` entry higher in this log) reproduces on real Cartosat imagery, not just DFC2019 — the relative depth output for this real coastal-delta scene is a smooth left-right gradient with zero correlation to the visible river channels, settlements, or vegetation. Confirms the failure mode is about nadir-aerial-vs-ground-photo training mismatch, not an artifact specific to DFC2019's own sensor characteristics.
+2. `correct_missed_structures()` corrected ~83% of this image's pixels (1,873,596/2,250,000) — far above the single-digit-percent rates measured on DFC2019 urban patches earlier this session. Two small artifact blobs in the corrected heightmap spatially coincide with dense cloud cover in the RGB — plausible (not confirmed) hypothesis: segmentation misclassifies cloud pixels, feeding a false "missed building" signal into the correction. Not isolated by inspecting raw segmentation output for this image — a real gap for whoever investigates semantic-correction edge cases next, alongside the already-logged flat-pavement-as-`wall` and warehouse-rooftop segmentation issues.
+
+**Resolves when:** (1) is now considered confirmed across two real, independent image sources — no further action needed unless a fix for the hallucination itself is undertaken (already flagged elsewhere as an input-representation-level problem, not fixable by a bigger model on the same depth channel). (2) resolves when someone inspects `segment_image()`'s raw class map for this specific image (or another heavily-clouded real image) to confirm or rule out the cloud-misclassification hypothesis.
+
+---
+
+## 2026-08-31 — Phase 5 Chunk 4: contract frozen — verified against real Chunks 1-3 output, not just re-read
+
+**Status:** RESOLVED (2026-08-31) — this entry itself is the freeze note (`docs/phase5.md` Chunk 4's stated home for it)
+
+**What was checked, not just asserted:** `integration/contracts.py::PipelineResult.validate(strict=True)` run against the real `integration/pipeline_runner.py` adapter output (not `ml/pipeline.py`'s local dataclass directly — the adapter is what backend actually calls) for two real cases exercised this phase:
+- A real `relative_dsm` result (Bhuvan/Cartosat sample, Chunk 3) — `validate(strict=True)` returns `[]`.
+- A real `absolute_dsm` result (`nepal_patch_12_4`, Chunk 1's dense-fusion path, dsm_path populated) — `validate(strict=True)` returns `[]`.
+
+No field was added to either `PipelineResult` (frozen or `ml/pipeline.py`'s local duplicate) during Phase 5 — Chunks 1-3 only *consumed* `dsm_path`/`confidence_map_path` (already present since Phase 4's dense-fusion work), never added new ones. The one known field-set divergence (`ml/pipeline.py`'s local class has no `heightmap_16bit_path` attribute at all; `metrics` defaults to `{}` not `None`) is unchanged from the already-logged, already-accepted "deliberate duplicate" decision (see `CLAUDE.md` Learned rules) — `pipeline_runner.py`'s `getattr(ml_result, "heightmap_16bit_path", None)` and `ml_result.metrics or None` already correct for both, and did before this phase started.
+
+**Go/no-go, stated plainly (per Chunk 4's own instruction not to imply broader readiness than earned):**
+- **Contract: GO.** Frozen, verified against real output on both branches. Safe for backend/frontend integration work to build against without expecting further field changes.
+- **Backend integration testing (real FastAPI/Celery worker path): NO-GO, unstarted.** Everything validated this phase (and Phase 4) ran through `ml/pipeline.py`/`integration/pipeline_runner.py` directly or via `evaluate.py` — never through an actual Celery task, Postgres job row, or FastAPI endpoint. This freeze says the *shape* is stable, not that the worker path has been exercised even once.
+- **Large-image tiling (the 2026-08-31 HARD FLAG entry): still unresolved, unchanged.** Explicitly deferred until after backend integration per that entry's own logged sequencing decision — this freeze does not touch it.
+- **`validation_report.json`'s own honest scope:** only `hilly` terrain is quantitatively validated (47/4,583 test patches, 99.0% of the split has no absolute ground truth to score against) — see Chunk 1/2 entries. "Contract frozen" is not "every terrain's accuracy is proven."
+
+**Resolves when:** N/A — this is the freeze. Reopen only if a future phase needs a new `PipelineResult` field (at which point it's a new decision, not a reopening of this one).

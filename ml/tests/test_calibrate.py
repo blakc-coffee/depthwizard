@@ -35,7 +35,7 @@ def test_non_georeferenced_scene_never_attempts_srtm(monkeypatch):
 
     monkeypatch.setattr(calibrate, "fetch_srtm_elevation", fail_if_called)
 
-    result = calibrate_scene(np.zeros(11), _FakeRegressor(5.0), geo_bounds=None)
+    result = calibrate_scene(np.zeros(len(FEATURE_COLUMNS)), _FakeRegressor(5.0), geo_bounds=None)
 
     assert "srtm" not in result.fusion.sources_used
     assert "regressor" in result.fusion.sources_used
@@ -52,7 +52,7 @@ def test_georeferenced_scene_uses_srtm_when_available(monkeypatch):
     monkeypatch.setattr(calibrate, "fetch_srtm_elevation", fake_fetch)
 
     bounds = GeoBounds(south=13.0, west=80.0, north=13.1, east=80.1)
-    result = calibrate_scene(np.zeros(11), _FakeRegressor(5.0), geo_bounds=bounds)
+    result = calibrate_scene(np.zeros(len(FEATURE_COLUMNS)), _FakeRegressor(5.0), geo_bounds=bounds)
 
     assert "srtm" in result.fusion.sources_used
     assert "regressor" in result.fusion.sources_used
@@ -66,7 +66,7 @@ def test_srtm_fetch_failure_degrades_gracefully_not_crash(monkeypatch):
     monkeypatch.setattr(calibrate, "fetch_srtm_elevation", fake_fetch)
 
     bounds = GeoBounds(south=13.0, west=80.0, north=13.1, east=80.1)
-    result = calibrate_scene(np.zeros(11), _FakeRegressor(5.0), geo_bounds=bounds)
+    result = calibrate_scene(np.zeros(len(FEATURE_COLUMNS)), _FakeRegressor(5.0), geo_bounds=bounds)
 
     assert "srtm" not in result.fusion.sources_used
     assert "regressor" in result.fusion.sources_used
@@ -83,7 +83,7 @@ def test_srtm_partial_coverage_reports_valid_fraction_below_one(monkeypatch):
     monkeypatch.setattr(calibrate, "fetch_srtm_elevation", fake_fetch)
 
     bounds = GeoBounds(south=13.0, west=80.0, north=13.1, east=80.1)
-    result = calibrate_scene(np.zeros(11), _FakeRegressor(5.0), geo_bounds=bounds)
+    result = calibrate_scene(np.zeros(len(FEATURE_COLUMNS)), _FakeRegressor(5.0), geo_bounds=bounds)
 
     assert result.srtm_valid_fraction == 0.5  # 2 of 4 pixels are NoData
 
@@ -95,7 +95,7 @@ def test_semantic_estimate_included_when_rgb_provided(monkeypatch):
     monkeypatch.setattr(calibrate, "segment_image", fake_segment)
 
     rgb = Image.new("RGB", (8, 8))
-    result = calibrate_scene(np.zeros(11), _FakeRegressor(5.0), rgb_image=rgb)
+    result = calibrate_scene(np.zeros(len(FEATURE_COLUMNS)), _FakeRegressor(5.0), rgb_image=rgb)
 
     assert "semantic" in result.fusion.sources_used
 
@@ -195,7 +195,7 @@ def test_regressor_variance_switches_based_on_srtm_availability(monkeypatch):
     monkeypatch.setattr(calibrate, "fuse_height_estimates", spy_fuse)
 
     # zeros -> depth_grad_std=0, below the texture threshold -> low-texture variance
-    calibrate_scene(np.zeros(11), _FakeRegressor(5.0), geo_bounds=None)
+    calibrate_scene(np.zeros(len(FEATURE_COLUMNS)), _FakeRegressor(5.0), geo_bounds=None)
     assert captured["regressor_variance"] == calibrate._TEXTURE_LOW_VARIANCE
 
     def fake_fetch(bounds):
@@ -206,7 +206,7 @@ def test_regressor_variance_switches_based_on_srtm_availability(monkeypatch):
 
     monkeypatch.setattr(calibrate, "fetch_srtm_elevation", fake_fetch)
     bounds = GeoBounds(south=13.0, west=80.0, north=13.1, east=80.1)
-    calibrate_scene(np.zeros(11), _FakeRegressor(5.0), geo_bounds=bounds)
+    calibrate_scene(np.zeros(len(FEATURE_COLUMNS)), _FakeRegressor(5.0), geo_bounds=bounds)
     assert captured["regressor_variance"] == 100.0
 
 

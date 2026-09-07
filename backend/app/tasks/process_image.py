@@ -15,7 +15,6 @@ from celery.exceptions import MaxRetriesExceededError
 
 from app.celery_app import celery_app
 from app.core.errors import NON_RETRYABLE_CODES, ApiException, ErrorCode
-from app.db.models import Job
 from app.db.session import SessionLocal
 from app.services import storage
 from app.services.jobs import JobService
@@ -62,11 +61,11 @@ def process_image(self, job_id: str) -> None:
     local_input: Path | None = None
 
     try:
-        job = db.get(Job, job_uuid)
+        job = jobs.get_for_processing(job_uuid)
         if job is None:
             return  # deleted before the worker even picked it up
 
-        jobs.set_celery_task_id(job, self.request.id)
+        jobs.set_celery_task_id(job_uuid, self.request.id)
         jobs.set_processing(job_uuid)
         stage, progress = _BEFORE_PIPELINE
         jobs.set_progress(job_uuid, stage=stage, progress=progress)

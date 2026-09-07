@@ -54,6 +54,17 @@ def _fake_batch_depth(monkeypatch, size=256):
     monkeypatch.setattr(ef, "estimate_relative_depth_batch", fake)
 
 
+def _fake_segment(monkeypatch):
+    """Solid 'building' class map — fast stand-in for the real segmentation
+    model, matching each input's size."""
+
+    def fake(image):
+        w, h = image.size
+        return np.zeros((h, w), dtype=np.uint8)  # 0 == BUILDING, see CLASS_TO_IDX
+
+    monkeypatch.setattr(ef, "segment_image", fake)
+
+
 def _build_manifest(tmp_path, per_split=(("train", "urban"), ("val", "urban"), ("test", "urban"))):
     manifest = []
     rgb_dir = tmp_path / "rgb"
@@ -139,9 +150,54 @@ def test_depth_features_has_no_nans_and_matches_schema(tmp_path):
 
     features = ef._depth_features(str(depth_path))
 
-    assert set(features.keys()) == set(ef.FEATURE_COLUMNS)
+    assert set(features.keys()) == set(ef.DEPTH_FEATURE_COLUMNS)
     assert all(v == v for v in features.values())  # no NaNs
     assert features["depth_min"] <= features["depth_p50"] <= features["depth_max"]
+
+
+def test_semantic_features_matches_schema_and_sums_to_one(tmp_path):
+    class_map_path = tmp_path / "c.png"
+    class_map = np.random.randint(0, 4, (16, 16), dtype=np.uint8)
+    Image.fromarray(class_map, "L").save(class_map_path)
+
+    features = ef._semantic_features(str(class_map_path))
+
+    assert set(features.keys()) == set(ef.SEMANTIC_FEATURE_COLUMNS)
+    assert all(v == v for v in features.values())  # no NaNs
+    assert abs(sum(features.values()) - 1.0) < 1e-6
+
+
+def test_run_batch_semantic_extraction_writes_expected_output_structure(tmp_path, monkeypatch):
+    _fake_segment(monkeypatch)
+    manifest = _build_manifest(tmp_path)
+    cache_dir = tmp_path / "semantic_cache"
+
+    result = ef.run_batch_semantic_extraction(manifest, data_root=str(tmp_path), cache_dir=str(cache_dir))
+
+    assert result == {"total": 3, "skipped": 0, "processed": 3}
+    for entry in manifest:
+        out_path = cache_dir / entry["split"] / entry["terrain_type"] / f"{entry['patch_id']}_classmap.png"
+        assert out_path.exists()
+        with Image.open(out_path) as img:
+            assert img.mode == "L"
+            assert img.size == (256, 256)
+
+
+def test_run_batch_semantic_extraction_resumes_without_recalling_model(tmp_path, monkeypatch):
+    _fake_segment(monkeypatch)
+    manifest = _build_manifest(tmp_path)
+    cache_dir = tmp_path / "semantic_cache"
+
+    first = ef.run_batch_semantic_extraction(manifest, data_root=str(tmp_path), cache_dir=str(cache_dir))
+    assert first["processed"] == 3
+
+    def fail_if_called(image):
+        raise AssertionError("model should not be re-invoked for already-cached patches")
+
+    monkeypatch.setattr(ef, "segment_image", fail_if_called)
+
+    second = ef.run_batch_semantic_extraction(manifest, data_root=str(tmp_path), cache_dir=str(cache_dir))
+    assert second == {"total": 3, "skipped": 3, "processed": 0}
 
 
 def test_height_label_excludes_nodata_pixels(tmp_path):
@@ -215,16 +271,21 @@ def test_build_feature_table_skips_patch_with_no_valid_ground_truth(tmp_path, mo
 
 def test_build_feature_table_end_to_end_row_has_frozen_columns(tmp_path, monkeypatch):
     _fake_batch_depth(monkeypatch)
+    _fake_segment(monkeypatch)
     manifest = _build_manifest(tmp_path, per_split=(("train", "urban"), ("val", "hilly")))
     cache_dir = tmp_path / "cache"
+    semantic_cache_dir = tmp_path / "semantic_cache"
     ef.run_batch_depth_extraction(manifest, data_root=str(tmp_path), cache_dir=str(cache_dir))
+    ef.run_batch_semantic_extraction(manifest, data_root=str(tmp_path), cache_dir=str(semantic_cache_dir))
 
     for i, entry in enumerate(manifest):
         truth_path = tmp_path / f"truth{i}.tif"
         _write_truth_patch(truth_path, 30.0 + i * 10)
         entry["truth_path"] = str(truth_path.relative_to(tmp_path))
 
-    rows, skipped = ef.build_feature_table(manifest, cache_dir=str(cache_dir), data_root=str(tmp_path))
+    rows, skipped = ef.build_feature_table(
+        manifest, cache_dir=str(cache_dir), data_root=str(tmp_path), semantic_cache_dir=str(semantic_cache_dir)
+    )
 
     assert skipped == []
     assert len(rows) == 2
@@ -232,6 +293,23 @@ def test_build_feature_table_end_to_end_row_has_frozen_columns(tmp_path, monkeyp
     assert set(rows[0].keys()) == expected_columns
     assert rows[0]["height_mean"] == 30.0
     assert rows[1]["height_mean"] == 40.0
+
+
+def test_build_feature_table_skips_patch_with_no_cached_semantic(tmp_path, monkeypatch):
+    _fake_batch_depth(monkeypatch)
+    manifest = _build_manifest(tmp_path, per_split=(("train", "urban"),))
+    cache_dir = tmp_path / "cache"
+    ef.run_batch_depth_extraction(manifest, data_root=str(tmp_path), cache_dir=str(cache_dir))
+
+    truth_path = tmp_path / "truth0.tif"
+    _write_truth_patch(truth_path, 30.0)
+    manifest[0]["truth_path"] = str(truth_path.relative_to(tmp_path))
+
+    # No semantic cache written for this entry -> must be skipped, not crash.
+    rows, skipped = ef.build_feature_table(manifest, cache_dir=str(cache_dir), data_root=str(tmp_path))
+
+    assert rows == []
+    assert skipped == [(manifest[0]["patch_id"], "no cached semantic class map")]
 
 
 def test_save_feature_table_writes_frozen_column_order(tmp_path):

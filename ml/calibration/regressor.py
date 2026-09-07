@@ -62,6 +62,18 @@ class RegressorConfig:
     loss_type: str = "smooth_l1"  # "smooth_l1" | "mse" | "l1"
     device: str = "auto"          # "auto" | "cuda" | "mps" | "cpu"
     early_stopping_patience: int = 15  # 0 disables early stopping entirely
+    aux_targets: int = 0
+    """Count of auxiliary regression heads trained alongside the primary
+    height_mean output (e.g. 2 for height_min/height_max). Set automatically
+    by fit() from y_train_aux's shape — not meant to be hand-set. 0 (the
+    default, and every pre-2026-08-31 checkpoint) is a single-output net,
+    byte-for-byte the old architecture. >0 adds extra output heads used only
+    to shape the shared trunk via loss — predict()/evaluate() always surface
+    just the primary height_mean output, the aux heads are never exposed
+    (ml/features/FEATURE_SCHEMA.md already flagged height_min/height_max as
+    'kept for later use... without needing to recompute from the raw
+    patches' — this is that use, docs/open_decisions.md 2026-08-31)."""
+    aux_loss_weight: float = 0.3  # relative weight of the averaged aux losses vs the primary loss
     log_target: bool = True
     """Train on log1p(height) instead of raw meters, inverting via expm1 in
     predict()/evaluate(). Real Phase 3 data spans building-height patches
@@ -107,9 +119,10 @@ class HeightRegressor:
         import torch.nn as nn
 
         cfg = self.config
+        out_dim = 1 + cfg.aux_targets
 
         class HeightRegressorMLP(nn.Module):
-            def __init__(self, in_dim: int, hidden_dim: int, dropout_rate: float):
+            def __init__(self, in_dim: int, hidden_dim: int, dropout_rate: float, out_dim: int):
                 super().__init__()
                 self.net = nn.Sequential(
                     nn.Linear(in_dim, hidden_dim),
@@ -120,13 +133,17 @@ class HeightRegressor:
                     nn.LayerNorm(hidden_dim // 2),
                     nn.GELU(),
                     nn.Dropout(dropout_rate),
-                    nn.Linear(hidden_dim // 2, 1),
+                    nn.Linear(hidden_dim // 2, out_dim),
                 )
 
             def forward(self, x: torch.Tensor) -> torch.Tensor:
-                return self.net(x).squeeze(-1)
+                out = self.net(x)
+                # Squeeze only the single-output case, so direct model access
+                # (e.g. test_log_target_predict_returns_real_meters_not_log_space)
+                # keeps seeing the old (N,) shape when aux_targets == 0.
+                return out.squeeze(-1) if out.shape[-1] == 1 else out
 
-        model = HeightRegressorMLP(cfg.input_dim, cfg.hidden_dim, cfg.dropout)
+        model = HeightRegressorMLP(cfg.input_dim, cfg.hidden_dim, cfg.dropout, out_dim)
         model.to(self.device_str)
         return model
 
@@ -136,6 +153,8 @@ class HeightRegressor:
         y_train: np.ndarray,
         X_val: np.ndarray | None = None,
         y_val: np.ndarray | None = None,
+        y_train_aux: np.ndarray | None = None,
+        y_val_aux: np.ndarray | None = None,
         verbose: bool = True,
     ) -> dict[str, list[float]]:
         """Train the regressor model on feature vectors and target metric heights.
@@ -145,11 +164,18 @@ class HeightRegressor:
         X_train : np.ndarray
             Training feature matrix of shape (N, feature_dim).
         y_train : np.ndarray
-            Training ground-truth heights of shape (N,) in meters.
+            Training ground-truth heights of shape (N,) in meters (height_mean).
         X_val : np.ndarray | None
             Validation feature matrix.
         y_val : np.ndarray | None
             Validation ground-truth heights.
+        y_train_aux : np.ndarray | None
+            Optional auxiliary training targets, shape (N, k) — e.g.
+            height_min/height_max. Trained as extra output heads purely to
+            regularize the shared trunk; predict()/evaluate() never surface
+            them. Sets self.config.aux_targets = k for this fit.
+        y_val_aux : np.ndarray | None
+            Auxiliary validation targets, same shape convention as y_train_aux.
         verbose : bool
             Whether to log epoch training losses.
 
@@ -167,6 +193,15 @@ class HeightRegressor:
         if self.config.log_target:
             y_train = np.log1p(np.maximum(y_train, -0.999))  # log1p undefined at/below -1
 
+        self.config.aux_targets = 0 if y_train_aux is None else int(np.asarray(y_train_aux).shape[1])
+        if y_train_aux is not None:
+            y_train_aux_arr = np.asarray(y_train_aux, dtype=np.float32)
+            if self.config.log_target:
+                y_train_aux_arr = np.log1p(np.maximum(y_train_aux_arr, -0.999))
+            y_train_target = np.concatenate([y_train[:, None], y_train_aux_arr], axis=1)
+        else:
+            y_train_target = y_train
+
         # Update input_dim if needed
         self.config.input_dim = X_train.shape[1]
         self._model = self._build_model()
@@ -178,7 +213,7 @@ class HeightRegressor:
         X_train_norm = (X_train - self._feature_mean) / self._feature_std
 
         # Dataset & DataLoader
-        dataset = TensorDataset(torch.from_numpy(X_train_norm), torch.from_numpy(y_train))
+        dataset = TensorDataset(torch.from_numpy(X_train_norm), torch.from_numpy(y_train_target))
         loader = DataLoader(
             dataset,
             batch_size=min(self.config.batch_size, len(X_train)),
@@ -191,7 +226,14 @@ class HeightRegressor:
             y_val_arr = np.asarray(y_val, dtype=np.float32).flatten()
             if self.config.log_target:
                 y_val_arr = np.log1p(np.maximum(y_val_arr, -0.999))
-            val_dataset = TensorDataset(torch.from_numpy(X_val_norm), torch.from_numpy(y_val_arr))
+            if y_val_aux is not None:
+                y_val_aux_arr = np.asarray(y_val_aux, dtype=np.float32)
+                if self.config.log_target:
+                    y_val_aux_arr = np.log1p(np.maximum(y_val_aux_arr, -0.999))
+                y_val_target = np.concatenate([y_val_arr[:, None], y_val_aux_arr], axis=1)
+            else:
+                y_val_target = y_val_arr
+            val_dataset = TensorDataset(torch.from_numpy(X_val_norm), torch.from_numpy(y_val_target))
             val_loader = DataLoader(val_dataset, batch_size=min(self.config.batch_size, len(X_val)), shuffle=False)
 
         # Loss function
@@ -207,6 +249,22 @@ class HeightRegressor:
             lr=self.config.learning_rate,
             weight_decay=self.config.weight_decay,
         )
+
+        aux_targets = self.config.aux_targets
+        aux_weight = self.config.aux_loss_weight
+
+        def combined_loss(pred: "torch.Tensor", by: "torch.Tensor") -> "torch.Tensor":
+            """Primary loss on height_mean (column 0), plus the mean of the
+            auxiliary heads' losses (height_min/height_max) at a lower
+            weight — the aux heads exist only to regularize the shared
+            trunk, so a bad primary fit must never be masked by a good aux
+            fit. When aux_targets == 0, pred/by are 1-D (unchanged from the
+            pre-2026-08-31 behavior)."""
+            if aux_targets == 0:
+                return criterion(pred, by)
+            primary = criterion(pred[:, 0], by[:, 0])
+            aux = sum(criterion(pred[:, i], by[:, i]) for i in range(1, aux_targets + 1)) / aux_targets
+            return primary + aux_weight * aux
 
         history: dict[str, list[float]] = {"train_loss": [], "val_loss": []}
         device = torch.device(self.device_str)
@@ -228,7 +286,7 @@ class HeightRegressor:
 
                 optimizer.zero_grad()
                 pred = self._model(bx)
-                loss = criterion(pred, by)
+                loss = combined_loss(pred, by)
                 loss.backward()
                 optimizer.step()
 
@@ -247,7 +305,7 @@ class HeightRegressor:
                     for bx, by in val_loader:
                         bx = bx.to(device)
                         by = by.to(device)
-                        loss = criterion(self._model(bx), by)
+                        loss = combined_loss(self._model(bx), by)
                         val_loss += loss.item()
                         val_batches += 1
                 avg_val_loss = val_loss / max(val_batches, 1)
@@ -324,6 +382,9 @@ class HeightRegressor:
 
         if self.config.log_target:
             preds = np.expm1(preds)  # invert log1p — predict() always returns real meters
+
+        if preds.ndim == 2:
+            preds = preds[:, 0]  # aux heads (height_min/height_max) only ever shape training loss
 
         if single_input:
             return preds[0]
