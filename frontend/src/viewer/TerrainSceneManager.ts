@@ -90,7 +90,10 @@ export class TerrainSceneManager {
     this.resizeObserver.observe(this.container);
   }
 
-  public async loadTerrain(params: TerrainMeshBuildParams): Promise<void> {
+  public async loadTerrain(
+    params: TerrainMeshBuildParams,
+    confidenceMapUrl?: string | null
+  ): Promise<void> {
     this.clearCurrentMesh();
 
     const buildResult = await buildTerrainMesh(params);
@@ -99,8 +102,10 @@ export class TerrainSceneManager {
 
     this.scene.add(this.currentMesh);
 
-    // Load 2D heightmap texture overlay for mode switching
+    // Texture loader for overlays
     const textureLoader = new THREE.TextureLoader();
+
+    // Load 2D heightmap texture overlay for mode switching
     if (params.heightmapUrl.startsWith('http')) {
       textureLoader.setCrossOrigin('anonymous');
     }
@@ -117,6 +122,32 @@ export class TerrainSceneManager {
       );
     });
 
+    // Load confidence texture overlay if confidenceMapUrl is provided
+    const effectiveConfidenceUrl =
+      confidenceMapUrl ?? (params as { confidenceMapUrl?: string | null }).confidenceMapUrl;
+    if (effectiveConfidenceUrl) {
+      if (effectiveConfidenceUrl.startsWith('http')) {
+        textureLoader.setCrossOrigin('anonymous');
+      }
+
+      this.confidenceTexture = await new Promise<THREE.Texture | null>((resolve) => {
+        textureLoader.load(
+          effectiveConfidenceUrl,
+          (tex) => {
+            tex.colorSpace = THREE.SRGBColorSpace;
+            resolve(tex);
+          },
+          undefined,
+          (err) => {
+            console.warn('Failed to load confidence map texture:', err);
+            resolve(null);
+          }
+        );
+      });
+    } else {
+      this.confidenceTexture = null;
+    }
+
     this.resetView();
   }
 
@@ -131,7 +162,11 @@ export class TerrainSceneManager {
       if (this.heightmapTexture) material.map = this.heightmapTexture;
       this.currentMesh.rotation.x = -Math.PI / 2;
     } else if (mode === 'confidence') {
-      if (this.confidenceTexture) material.map = this.confidenceTexture;
+      if (this.confidenceTexture) {
+        material.map = this.confidenceTexture;
+      } else if (this.currentTexture) {
+        material.map = this.currentTexture;
+      }
       this.currentMesh.rotation.x = -Math.PI / 2;
     }
 
@@ -162,6 +197,15 @@ export class TerrainSceneManager {
       }
 
       this.currentMesh = null;
+    }
+
+    if (this.heightmapTexture) {
+      this.heightmapTexture.dispose();
+      this.heightmapTexture = null;
+    }
+    if (this.confidenceTexture) {
+      this.confidenceTexture.dispose();
+      this.confidenceTexture = null;
     }
   }
 

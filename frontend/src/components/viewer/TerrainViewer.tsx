@@ -38,12 +38,15 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
       managerRef.current = manager;
 
       manager
-        .loadTerrain({
-          heightmapUrl,
-          textureUrl,
-          maxHeight,
-          isAbsolute: outputType === 'absolute_dsm',
-        })
+        .loadTerrain(
+          {
+            heightmapUrl,
+            textureUrl,
+            maxHeight,
+            isAbsolute: outputType === 'absolute_dsm',
+          },
+          confidenceMapUrl
+        )
         .then(() => {
           if (isSubscribed) {
             setLoading(false);
@@ -71,7 +74,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
         managerRef.current = null;
       }
     };
-  }, [heightmapUrl, textureUrl, maxHeight, outputType]);
+  }, [heightmapUrl, textureUrl, confidenceMapUrl, maxHeight, outputType]);
 
   const handleModeChange = (mode: ViewMode) => {
     setActiveMode(mode);
