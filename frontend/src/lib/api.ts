@@ -14,35 +14,75 @@ import {
   JobStatusResponse,
 } from './types';
 
-const isMockApi =
+export const isMockApi =
   import.meta.env.VITE_USE_MOCK_API === 'true' ||
   !import.meta.env.VITE_SUPABASE_URL ||
   import.meta.env.VITE_SUPABASE_URL.includes('placeholder');
 
-async function getAuthHeader(): Promise<Record<string, string>> {
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+
+export function buildApiUrl(endpoint: string): string {
+  const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
+}
+
+export async function getAuthHeader(): Promise<Record<string, string>> {
   try {
-    const { data } = await supabase.auth.getSession();
-    const token = data.session?.access_token;
-    if (!token) {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) {
+      console.warn('Supabase getSession error:', error.message);
       return {};
     }
-    return {
-      Authorization: `Bearer ${token}`,
-    };
-  } catch {
-    return {};
+    const token = data.session?.access_token;
+    if (token) {
+      return {
+        Authorization: `Bearer ${token}`,
+      };
+    }
+  } catch (err) {
+    console.warn('Unexpected error retrieving auth session:', err);
   }
+  return {};
+}
+
+function formatNetworkError(err: unknown): ApiException {
+  if (err instanceof ApiException) {
+    return err;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  if (
+    message.includes('Failed to fetch') ||
+    message.includes('NetworkError') ||
+    message.includes('Load failed') ||
+    message.includes('ECONNREFUSED')
+  ) {
+    return new ApiException(
+      'NETWORK_ERROR',
+      'Unable to connect to the backend server. The service may be waking up (e.g. Render cold start) or unreachable. Please try again shortly.'
+    );
+  }
+  return new ApiException(
+    'NETWORK_ERROR',
+    message || 'Network error connecting to backend service.'
+  );
 }
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      throw new ApiException(
+        'SERVER_UNAVAILABLE',
+        `Backend server is waking up or temporarily unavailable (HTTP ${response.status}). If using a free tier host (e.g. Render cold start), please wait 30-60 seconds and retry.`
+      );
+    }
+
     let errorData: unknown;
     try {
       errorData = await response.json();
     } catch {
       throw new ApiException(
         'HTTP_ERROR',
-        `HTTP Error ${response.status}: ${response.statusText}`
+        `HTTP Error ${response.status}: ${response.statusText || 'Unknown server response'}`
       );
     }
     const parsed = parseApiError(errorData);
@@ -66,7 +106,7 @@ export async function createJob(file: File): Promise<CreateJobResponse> {
     const formData = new FormData();
     formData.append('file', file);
 
-    const response = await fetch('/api/v1/jobs', {
+    const response = await fetch(buildApiUrl('/api/v1/jobs'), {
       method: 'POST',
       headers: {
         ...authHeaders,
@@ -76,11 +116,7 @@ export async function createJob(file: File): Promise<CreateJobResponse> {
 
     return await handleResponse<CreateJobResponse>(response);
   } catch (err) {
-    if (err instanceof ApiException) {
-      throw err;
-    }
-    // Fallback to mock API if backend dev server is not reachable
-    return mockCreateJob(file);
+    throw formatNetworkError(err);
   }
 }
 
@@ -91,19 +127,17 @@ export async function getJob(jobId: string): Promise<JobStatusResponse> {
 
   try {
     const authHeaders = await getAuthHeader();
-    const response = await fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`, {
+    const response = await fetch(buildApiUrl(`/api/v1/jobs/${encodeURIComponent(jobId)}`), {
       method: 'GET',
       headers: {
+        Accept: 'application/json',
         ...authHeaders,
       },
     });
 
     return await handleResponse<JobStatusResponse>(response);
   } catch (err) {
-    if (err instanceof ApiException) {
-      throw err;
-    }
-    return mockGetJob(jobId);
+    throw formatNetworkError(err);
   }
 }
 
@@ -114,19 +148,17 @@ export async function getJobResult(jobId: string): Promise<JobResult> {
 
   try {
     const authHeaders = await getAuthHeader();
-    const response = await fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}/result`, {
+    const response = await fetch(buildApiUrl(`/api/v1/jobs/${encodeURIComponent(jobId)}/result`), {
       method: 'GET',
       headers: {
+        Accept: 'application/json',
         ...authHeaders,
       },
     });
 
     return await handleResponse<JobResult>(response);
   } catch (err) {
-    if (err instanceof ApiException) {
-      throw err;
-    }
-    return mockGetJobResult(jobId);
+    throw formatNetworkError(err);
   }
 }
 
@@ -137,19 +169,17 @@ export async function getJobs(): Promise<JobListResponse> {
 
   try {
     const authHeaders = await getAuthHeader();
-    const response = await fetch('/api/v1/jobs', {
+    const response = await fetch(buildApiUrl('/api/v1/jobs'), {
       method: 'GET',
       headers: {
+        Accept: 'application/json',
         ...authHeaders,
       },
     });
 
     return await handleResponse<JobListResponse>(response);
   } catch (err) {
-    if (err instanceof ApiException) {
-      throw err;
-    }
-    return mockGetJobs();
+    throw formatNetworkError(err);
   }
 }
 
@@ -160,7 +190,7 @@ export async function deleteJob(jobId: string): Promise<void> {
 
   try {
     const authHeaders = await getAuthHeader();
-    const response = await fetch(`/api/v1/jobs/${encodeURIComponent(jobId)}`, {
+    const response = await fetch(buildApiUrl(`/api/v1/jobs/${encodeURIComponent(jobId)}`), {
       method: 'DELETE',
       headers: {
         ...authHeaders,
@@ -169,9 +199,6 @@ export async function deleteJob(jobId: string): Promise<void> {
 
     return await handleResponse<void>(response);
   } catch (err) {
-    if (err instanceof ApiException) {
-      throw err;
-    }
-    return mockDeleteJob(jobId);
+    throw formatNetworkError(err);
   }
 }

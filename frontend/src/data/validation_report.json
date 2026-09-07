@@ -1,0 +1,67 @@
+{
+  "schema_version": "1",
+  "generated_by": "ml/validation/evaluate.py",
+  "pipeline_entrypoint": "ml.pipeline.run_pipeline",
+  "test_split": {
+    "n_total": 4583,
+    "n_scored_absolute_dsm": 47,
+    "n_excluded_relative_dsm": 4536,
+    "n_errored": 0,
+    "excluded_fraction": 0.9897,
+    "excluded_note": "relative_dsm scenes have no real geo-coordinates to anchor an absolute-scale comparison against \u2014 excluded from RMSE/MAE/correlation, not silently dropped. This is the large majority of the test split (DFC2019 patches are permanently non-georeferenceable), not a data-quality problem."
+  },
+  "overall": {
+    "n_scenes": 47,
+    "rmse_m": 48.72,
+    "mae_m": 17.12,
+    "pearson_r": 0.965,
+    "median_rmse_m": 10.45,
+    "median_mae_m": 8.08
+  },
+  "per_terrain": {
+    "urban": {
+      "n_scenes": 0,
+      "rmse_m": null,
+      "mae_m": null,
+      "pearson_r": null,
+      "median_rmse_m": null,
+      "median_mae_m": null,
+      "note": "No absolute-scale scenes for this terrain in the held-out test split (no real geo-coordinates available to anchor an absolute comparison)."
+    },
+    "sparse": {
+      "n_scenes": 0,
+      "rmse_m": null,
+      "mae_m": null,
+      "pearson_r": null,
+      "median_rmse_m": null,
+      "median_mae_m": null,
+      "note": "No absolute-scale scenes for this terrain in the held-out test split (no real geo-coordinates available to anchor an absolute comparison)."
+    },
+    "forested": {
+      "n_scenes": 0,
+      "rmse_m": null,
+      "mae_m": null,
+      "pearson_r": null,
+      "median_rmse_m": null,
+      "median_mae_m": null,
+      "note": "No absolute-scale scenes for this terrain in the held-out test split (no real geo-coordinates available to anchor an absolute comparison)."
+    },
+    "hilly": {
+      "n_scenes": 47,
+      "rmse_m": 48.72,
+      "mae_m": 17.12,
+      "pearson_r": 0.965,
+      "median_rmse_m": 10.45,
+      "median_mae_m": 8.08,
+      "note": "Pooled RMSE/MAE are dragged up by 3 of 47 real outlier scene(s) \u2014 tuscany_patch_14_2 (67m), sierra_nevada_patch_7_17 (257m), scotland_patch_2_0 (276m) \u2014 root cause not yet isolated (see docs/open_decisions.md, 2026-08-31). The median columns are the honest typical-case number."
+    }
+  },
+  "weakest_category": {
+    "terrain": "forested",
+    "reason": "Genuine tree canopy (post-relabeling, isolated from the mislabeled-building patches this session found and fixed) has the model's real structural weak point: scalar-regressor R^2\u2248-0.96 on held-out canopy patches, a permanent information ceiling (canopy occludes the true ground surface from a single RGB image), not a training or feature-engineering gap. This dense per-pixel validation report cannot show that directly \u2014 no forested/canopy patch in this dataset carries real geo-coordinates, so none ever reaches absolute_dsm to be scored here. hilly is the only terrain this report can measure end-to-end (SRTM rescues it from a similar, otherwise-unrescuable ceiling); forested has no equivalent rescue signal available."
+  },
+  "confidence": {
+    "description": "Fraction of absolute_dsm pixels directly measured from SRTM elevation data vs. model-predicted where SRTM had no coverage (ml/calibration/dense_fusion.py's confidence map). Reported here as a model-level average across all scored scenes \u2014 a per-scene confidence_map_url is what the per-scene results panel shows for any single real job (docs/depthwizard.md Section 10.6), a separate, per-image signal this aggregate is not a substitute for.",
+    "mean_srtm_coverage": 1.0
+  }
+}
