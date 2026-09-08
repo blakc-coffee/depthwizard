@@ -23,6 +23,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
   const [activeMode, setActiveMode] = useState<ViewMode>('3d');
   const [loading, setLoading] = useState<boolean>(true);
   const [viewerError, setViewerError] = useState<string | null>(null);
+  const [exaggeration, setExaggeration] = useState<number>(2.4);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -44,6 +45,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
             textureUrl,
             maxHeight,
             isAbsolute: outputType === 'absolute_dsm',
+            verticalExaggeration: exaggeration,
           },
           confidenceMapUrl
         )
@@ -85,27 +87,54 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
     managerRef.current?.resetView();
   };
 
+  const handleExaggerationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    setExaggeration(val);
+    managerRef.current?.setHeightExaggeration(val);
+  };
+
   return (
     <div className="w-full h-full bg-[#f6f8fa] border border-[#cdd2d9] rounded-[12px] p-4 sm:p-5 flex flex-col flex-1 max-w-full overflow-hidden">
       {/* Viewer Header */}
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-base font-semibold text-[#36394a] font-heading">
-          3D Viewer
-        </h3>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 className="text-base font-semibold text-[#36394a] font-heading">
+            3D Viewer
+          </h3>
+
+          {/* Vertical Relief Exaggeration Slider */}
+          <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] shadow-2xs">
+            <span className="text-xs text-[#666d80] font-medium select-none">Relief:</span>
+            <input
+              type="range"
+              min="0.8"
+              max="4.5"
+              step="0.1"
+              value={exaggeration}
+              onChange={handleExaggerationChange}
+              className="w-20 sm:w-28 h-1.5 bg-[#e2e4e9] rounded-lg appearance-none cursor-pointer accent-[#5e4cff]"
+              title={`Vertical Exaggeration: ${exaggeration.toFixed(1)}x`}
+            />
+            <span className="text-xs font-mono font-semibold text-[#5e4cff] min-w-[32px] text-right">
+              {exaggeration.toFixed(1)}x
+            </span>
+          </div>
+        </div>
+
         <button
           type="button"
           onClick={handleResetView}
           aria-label="Reset View"
-          className="text-xs text-[#36394a] hover:bg-white font-medium px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] bg-white transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
+          className="text-xs text-[#36394a] hover:bg-white font-medium px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] bg-white transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] shadow-2xs"
         >
           Reset View
         </button>
       </div>
 
-      {/* 3D WebGL Canvas Container matching image_3.png */}
-      <div className="flex-1 w-full relative bg-[#1a1b25] rounded-[12px] overflow-hidden min-h-[360px] sm:min-h-[440px]">
+      {/* 3D WebGL Canvas Container */}
+      <div className="flex-1 w-full relative bg-[#0e1017] rounded-[12px] overflow-hidden min-h-[360px] sm:min-h-[440px] shadow-inner">
         {loading && (
-          <div className="absolute inset-0 z-20 bg-[#1a1b25]/90 flex items-center justify-center space-x-3 text-sm text-white font-medium">
+          <div className="absolute inset-0 z-20 bg-[#0e1017]/90 flex items-center justify-center space-x-3 text-sm text-white font-medium">
             <svg
               className="animate-spin h-5 w-5 text-[#5e4cff]"
               xmlns="http://www.w3.org/2000/svg"
@@ -127,12 +156,12 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
               />
             </svg>
-            <span>Building 3D terrain mesh…</span>
+            <span>Generating solid 3D terrain block…</span>
           </div>
         )}
 
         {viewerError && (
-          <div className="absolute inset-0 z-20 bg-[#1a1b25] p-6 flex flex-col items-center justify-center text-center space-y-3 text-white">
+          <div className="absolute inset-0 z-20 bg-[#0e1017] p-6 flex flex-col items-center justify-center text-center space-y-3 text-white">
             <div className="w-12 h-12 rounded-full bg-white/10 text-amber-400 flex items-center justify-center">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -153,7 +182,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
 
       {/* Caption under canvas */}
       <p className="text-[11px] text-[#818898] text-center my-2.5">
-        Drag to orbit · Scroll to zoom
+        Drag to orbit · Scroll to zoom · Use Relief slider to exaggerate cliffs & peaks
       </p>
 
       {/* Bottom Segmented Overlay Pills matching image_3.png */}

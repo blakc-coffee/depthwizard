@@ -19,15 +19,15 @@ export class TerrainSceneManager {
   private animationFrameId: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
 
-  private initialCameraPosition = new THREE.Vector3(0, 8, 12);
+  private initialCameraPosition = new THREE.Vector3(0, 7.5, 11);
   private initialTargetPosition = new THREE.Vector3(0, 0, 0);
 
   constructor(container: HTMLElement) {
     this.container = container;
 
-    // Scene
+    // Scene with dark cinematic exhibition backdrop (matches 3D terrain block styling)
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#F6F4EC');
+    this.scene.background = new THREE.Color('#0e1017');
 
     // Camera
     const width = container.clientWidth || 800;
@@ -48,7 +48,7 @@ export class TerrainSceneManager {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
-    this.controls.maxPolarAngle = Math.PI / 2 - 0.05;
+    this.controls.maxPolarAngle = Math.PI / 2 - 0.02; // allows inspecting pedestal side walls
     this.controls.target.copy(this.initialTargetPosition);
 
     // Lights
@@ -62,18 +62,22 @@ export class TerrainSceneManager {
   }
 
   private setupLighting() {
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.75);
+    // Subtle cool ambient fill to preserve deep shadow contrasts in canyons
+    const ambientLight = new THREE.AmbientLight(0xdde5ed, 0.32);
     this.scene.add(ambientLight);
 
-    const sunLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    sunLight.position.set(10, 20, 15);
+    // Warm, dramatic directional sunlight casting distinct shadows across ridges
+    const sunLight = new THREE.DirectionalLight(0xfff7e8, 1.8);
+    sunLight.position.set(16, 24, 14);
     sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 1024;
-    sunLight.shadow.mapSize.height = 1024;
+    sunLight.shadow.mapSize.width = 2048;
+    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.bias = -0.0005;
     this.scene.add(sunLight);
 
-    const fillLight = new THREE.DirectionalLight(0xece9dd, 0.4);
-    fillLight.position.set(-10, 10, -10);
+    // Subtle cool rim light from opposite side to prevent total blackouts in deep shadow
+    const fillLight = new THREE.DirectionalLight(0x7890a8, 0.45);
+    fillLight.position.set(-14, 12, -12);
     this.scene.add(fillLight);
   }
 
@@ -115,6 +119,8 @@ export class TerrainSceneManager {
         params.heightmapUrl,
         (tex) => {
           tex.colorSpace = THREE.SRGBColorSpace;
+          tex.wrapS = THREE.ClampToEdgeWrapping;
+          tex.wrapT = THREE.ClampToEdgeWrapping;
           resolve(tex);
         },
         undefined,
@@ -153,24 +159,47 @@ export class TerrainSceneManager {
 
   public setViewMode(mode: ViewMode): void {
     if (!this.currentMesh) return;
-    const material = this.currentMesh.material as THREE.MeshStandardMaterial;
+    const materials = Array.isArray(this.currentMesh.material)
+      ? this.currentMesh.material
+      : [this.currentMesh.material];
+    const terrainMat = materials[0] as THREE.MeshStandardMaterial;
 
     if (mode === '3d') {
-      if (this.currentTexture) material.map = this.currentTexture;
-      this.currentMesh.rotation.x = -Math.PI / 2;
+      if (this.currentTexture) terrainMat.map = this.currentTexture;
     } else if (mode === '2d_heightmap') {
-      if (this.heightmapTexture) material.map = this.heightmapTexture;
-      this.currentMesh.rotation.x = -Math.PI / 2;
+      if (this.heightmapTexture) terrainMat.map = this.heightmapTexture;
     } else if (mode === 'confidence') {
       if (this.confidenceTexture) {
-        material.map = this.confidenceTexture;
+        terrainMat.map = this.confidenceTexture;
       } else if (this.currentTexture) {
-        material.map = this.currentTexture;
+        terrainMat.map = this.currentTexture;
       }
-      this.currentMesh.rotation.x = -Math.PI / 2;
     }
 
-    material.needsUpdate = true;
+    terrainMat.needsUpdate = true;
+  }
+
+  public setHeightExaggeration(multiplier: number): void {
+    if (!this.currentMesh) return;
+    const geom = this.currentMesh.geometry;
+    const rawHeights = geom.userData.rawHeights as Float32Array | undefined;
+    const isSkirt = geom.userData.isSkirt as Uint8Array | undefined;
+    const zBase = (geom.userData.zBase as number) ?? -0.75;
+    if (!rawHeights || !isSkirt) return;
+
+    const posAttr = geom.attributes.position;
+    for (let i = 0; i < posAttr.count; i++) {
+      const type = isSkirt[i];
+      if (type === 2) {
+        // Bottom plate or skirt floor stays pinned to zBase
+        posAttr.setZ(i, zBase);
+      } else {
+        // Top terrain & top of skirt scales directly with the multiplier
+        posAttr.setZ(i, rawHeights[i] * multiplier);
+      }
+    }
+    posAttr.needsUpdate = true;
+    geom.computeVertexNormals();
   }
 
   public resetView(): void {
