@@ -23,7 +23,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
   const [activeMode, setActiveMode] = useState<ViewMode>('3d');
   const [loading, setLoading] = useState<boolean>(true);
   const [viewerError, setViewerError] = useState<string | null>(null);
-  const [exaggeration, setExaggeration] = useState<number>(2.4);
+  const [exaggeration, setExaggeration] = useState<number>(2.2);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -131,10 +131,10 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
         </button>
       </div>
 
-      {/* 3D WebGL Canvas Container */}
-      <div className="flex-1 w-full relative bg-[#0e1017] rounded-[12px] overflow-hidden min-h-[360px] sm:min-h-[440px] shadow-inner">
+      {/* 3D WebGL Canvas Container: Clean soft gray exhibition studio */}
+      <div className="flex-1 w-full relative bg-[#e2e6eb] rounded-[12px] overflow-hidden min-h-[360px] sm:min-h-[440px] border border-[#cdd2d9]/80 shadow-inner">
         {loading && (
-          <div className="absolute inset-0 z-20 bg-[#0e1017]/90 flex items-center justify-center space-x-3 text-sm text-white font-medium">
+          <div className="absolute inset-0 z-20 bg-[#e2e6eb]/90 flex items-center justify-center space-x-3 text-sm text-[#36394a] font-medium">
             <svg
               className="animate-spin h-5 w-5 text-[#5e4cff]"
               xmlns="http://www.w3.org/2000/svg"
@@ -156,13 +156,13 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
                 d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
               />
             </svg>
-            <span>Generating solid 3D terrain block…</span>
+            <span>Building solid 3D terrain block…</span>
           </div>
         )}
 
         {viewerError && (
-          <div className="absolute inset-0 z-20 bg-[#0e1017] p-6 flex flex-col items-center justify-center text-center space-y-3 text-white">
-            <div className="w-12 h-12 rounded-full bg-white/10 text-amber-400 flex items-center justify-center">
+          <div className="absolute inset-0 z-20 bg-white/95 p-6 flex flex-col items-center justify-center text-center space-y-3 text-[#36394a]">
+            <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
                   strokeLinecap="round"
@@ -182,7 +182,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
 
       {/* Caption under canvas */}
       <p className="text-[11px] text-[#818898] text-center my-2.5">
-        Drag to orbit · Scroll to zoom · Use Relief slider to exaggerate cliffs & peaks
+        Drag to orbit · Scroll to zoom · Use Relief slider to adjust peak heights
       </p>
 
       {/* Bottom Segmented Overlay Pills matching image_3.png */}

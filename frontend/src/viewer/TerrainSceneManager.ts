@@ -25,9 +25,9 @@ export class TerrainSceneManager {
   constructor(container: HTMLElement) {
     this.container = container;
 
-    // Scene with dark cinematic exhibition backdrop (matches 3D terrain block styling)
+    // Scene with soft, clean architectural gallery gray backdrop
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#0e1017');
+    this.scene.background = new THREE.Color('#e2e6eb');
 
     // Camera
     const width = container.clientWidth || 800;
@@ -48,7 +48,7 @@ export class TerrainSceneManager {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
-    this.controls.maxPolarAngle = Math.PI / 2 - 0.02; // allows inspecting pedestal side walls
+    this.controls.maxPolarAngle = Math.PI / 2 - 0.02; // allows viewing pedestal side walls
     this.controls.target.copy(this.initialTargetPosition);
 
     // Lights
@@ -62,12 +62,12 @@ export class TerrainSceneManager {
   }
 
   private setupLighting() {
-    // Subtle cool ambient fill to preserve deep shadow contrasts in canyons
-    const ambientLight = new THREE.AmbientLight(0xdde5ed, 0.32);
+    // Balanced ambient light suited for a soft gray backdrop
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.65);
     this.scene.add(ambientLight);
 
-    // Warm, dramatic directional sunlight casting distinct shadows across ridges
-    const sunLight = new THREE.DirectionalLight(0xfff7e8, 1.8);
+    // Warm directional sunlight casting distinct shadows across ridges
+    const sunLight = new THREE.DirectionalLight(0xfffaee, 1.4);
     sunLight.position.set(16, 24, 14);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.width = 2048;
@@ -75,8 +75,8 @@ export class TerrainSceneManager {
     sunLight.shadow.bias = -0.0005;
     this.scene.add(sunLight);
 
-    // Subtle cool rim light from opposite side to prevent total blackouts in deep shadow
-    const fillLight = new THREE.DirectionalLight(0x7890a8, 0.45);
+    // Cool fill light from opposite side for natural landscape illumination
+    const fillLight = new THREE.DirectionalLight(0xdde3ec, 0.4);
     fillLight.position.set(-14, 12, -12);
     this.scene.add(fillLight);
   }
@@ -184,17 +184,20 @@ export class TerrainSceneManager {
     const geom = this.currentMesh.geometry;
     const rawHeights = geom.userData.rawHeights as Float32Array | undefined;
     const isSkirt = geom.userData.isSkirt as Uint8Array | undefined;
-    const zBase = (geom.userData.zBase as number) ?? -0.75;
+    const minRawZ = (geom.userData.minRawZ as number) ?? 0;
     if (!rawHeights || !isSkirt) return;
+
+    // Dynamically anchor base floor below the lowest displaced point
+    const currentZBase = (minRawZ * multiplier) - 0.8;
 
     const posAttr = geom.attributes.position;
     for (let i = 0; i < posAttr.count; i++) {
       const type = isSkirt[i];
       if (type === 2) {
-        // Bottom plate or skirt floor stays pinned to zBase
-        posAttr.setZ(i, zBase);
+        // Bottom floor and bottom skirt vertices stay anchored at currentZBase
+        posAttr.setZ(i, currentZBase);
       } else {
-        // Top terrain & top of skirt scales directly with the multiplier
+        // Top terrain and top skirt vertices scale dynamically with relief
         posAttr.setZ(i, rawHeights[i] * multiplier);
       }
     }

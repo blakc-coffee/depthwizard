@@ -21,7 +21,7 @@ export async function buildTerrainMesh(
   params: TerrainMeshBuildParams
 ): Promise<TerrainMeshBuildResult> {
   const { heightmapUrl, textureUrl, maxHeight, isAbsolute } = params;
-  const exaggeration = params.verticalExaggeration ?? (isAbsolute ? 2.8 : 2.4);
+  const exaggeration = params.verticalExaggeration ?? (isAbsolute ? 2.6 : 2.2);
 
   // 1. Load heightmap image in browser HTMLImageElement
   const heightmapImg = await loadImage(heightmapUrl);
@@ -66,13 +66,13 @@ export async function buildTerrainMesh(
   // Build top surface vertices & UVs
   const topVertexCount = gridWidth * gridHeight;
   const zScale = planeWidth / 10;
-  const unitHeightScale = (zScale * 1.5);
+  const unitHeightScale = zScale * 1.5;
 
   const topPositions = new Float32Array(topVertexCount * 3);
   const topUVs = new Float32Array(topVertexCount * 2);
   const rawHeights = new Float32Array(topVertexCount);
 
-  let minZ = Infinity;
+  let minRawZ = Infinity;
 
   for (let iy = 0; iy < gridHeight; iy++) {
     const v = iy / (gridHeight - 1);
@@ -102,7 +102,7 @@ export async function buildTerrainMesh(
       const zValue = unitZ * exaggeration;
 
       rawHeights[idx] = unitZ;
-      if (zValue < minZ) minZ = zValue;
+      if (unitZ < minRawZ) minRawZ = unitZ;
 
       topPositions[idx * 3] = xPos;
       topPositions[idx * 3 + 1] = yPos;
@@ -114,7 +114,7 @@ export async function buildTerrainMesh(
   }
 
   // Base pedestal elevation (set below lowest terrain point for solid diorama block)
-  const zBase = Math.min(0, minZ) - 0.75;
+  const zBase = (minRawZ * exaggeration) - 0.8;
 
   // Generate top surface triangle indices
   const topIndices: number[] = [];
@@ -141,29 +141,31 @@ export async function buildTerrainMesh(
   let skirtVertexOffset = topVertexCount;
 
   function addSkirtQuad(
-    p1: [number, number, number],
-    p2: [number, number, number],
-    p3: [number, number, number],
-    p4: [number, number, number],
+    top1: [number, number, number],
+    top2: [number, number, number],
+    bot2: [number, number, number],
+    bot1: [number, number, number],
     rawZ1: number,
-    rawZ2: number
+    rawZ2: number,
+    flipWinding: boolean = false
   ) {
     const v0 = skirtVertexOffset;
-    skirtPositions.push(...p1, ...p2, ...p3, ...p4);
+    skirtPositions.push(...top1, ...top2, ...bot2, ...bot1);
     skirtUVs.push(0, 0, 1, 0, 1, 1, 0, 1);
     skirtRawHeights.push(rawZ1, rawZ2, 0, 0);
     skirtIsBottom.push(1, 1, 2, 2);
 
-    skirtIndices.push(v0, v1(v0), v2(v0));
-    skirtIndices.push(v0, v2(v0), v3(v0));
+    if (flipWinding) {
+      skirtIndices.push(v0, v0 + 2, v0 + 1);
+      skirtIndices.push(v0, v0 + 3, v0 + 2);
+    } else {
+      skirtIndices.push(v0, v0 + 1, v0 + 2);
+      skirtIndices.push(v0, v0 + 2, v0 + 3);
+    }
     skirtVertexOffset += 4;
   }
 
-  function v1(o: number) { return o + 1; }
-  function v2(o: number) { return o + 2; }
-  function v3(o: number) { return o + 3; }
-
-  // North Edge (iy = 0, y = +planeHeight/2)
+  // North Edge (iy = 0, y = +planeHeight/2) — facing North (+Y)
   for (let ix = 0; ix < gridWidth - 1; ix++) {
     const i1 = ix;
     const i2 = ix + 1;
@@ -179,11 +181,12 @@ export async function buildTerrainMesh(
       [x2, y, zBase],
       [x1, y, zBase],
       rawHeights[i1],
-      rawHeights[i2]
+      rawHeights[i2],
+      false
     );
   }
 
-  // South Edge (iy = gridHeight - 1, y = -planeHeight/2)
+  // South Edge (iy = gridHeight - 1, y = -planeHeight/2) — facing South (-Y)
   const southRowOffset = (gridHeight - 1) * gridWidth;
   for (let ix = 0; ix < gridWidth - 1; ix++) {
     const i1 = southRowOffset + ix;
@@ -195,16 +198,17 @@ export async function buildTerrainMesh(
     const z2 = topPositions[i2 * 3 + 2];
 
     addSkirtQuad(
-      [x2, y, z2],
       [x1, y, z1],
-      [x1, y, zBase],
+      [x2, y, z2],
       [x2, y, zBase],
+      [x1, y, zBase],
+      rawHeights[i1],
       rawHeights[i2],
-      rawHeights[i1]
+      true
     );
   }
 
-  // West Edge (ix = 0, x = -planeWidth/2)
+  // West Edge (ix = 0, x = -planeWidth/2) — facing West (-X)
   for (let iy = 0; iy < gridHeight - 1; iy++) {
     const i1 = iy * gridWidth;
     const i2 = (iy + 1) * gridWidth;
@@ -216,15 +220,16 @@ export async function buildTerrainMesh(
 
     addSkirtQuad(
       [x, y1, z1],
-      [x, y1, zBase],
-      [x, y2, zBase],
       [x, y2, z2],
+      [x, y2, zBase],
+      [x, y1, zBase],
       rawHeights[i1],
-      rawHeights[i2]
+      rawHeights[i2],
+      true
     );
   }
 
-  // East Edge (ix = gridWidth - 1, x = +planeWidth/2)
+  // East Edge (ix = gridWidth - 1, x = +planeWidth/2) — facing East (+X)
   for (let iy = 0; iy < gridHeight - 1; iy++) {
     const i1 = iy * gridWidth + (gridWidth - 1);
     const i2 = (iy + 1) * gridWidth + (gridWidth - 1);
@@ -235,16 +240,17 @@ export async function buildTerrainMesh(
     const z2 = topPositions[i2 * 3 + 2];
 
     addSkirtQuad(
+      [x, y1, z1],
       [x, y2, z2],
       [x, y2, zBase],
       [x, y1, zBase],
-      [x, y1, z1],
+      rawHeights[i1],
       rawHeights[i2],
-      rawHeights[i1]
+      false
     );
   }
 
-  // Bottom Base Plate
+  // Bottom Base Plate (facing -Z)
   const b0 = skirtVertexOffset;
   const hw = planeWidth / 2;
   const hh = planeHeight / 2;
@@ -258,8 +264,8 @@ export async function buildTerrainMesh(
   skirtRawHeights.push(0, 0, 0, 0);
   skirtIsBottom.push(2, 2, 2, 2);
 
-  skirtIndices.push(b0, b0 + 2, b0 + 1);
   skirtIndices.push(b0, b0 + 3, b0 + 2);
+  skirtIndices.push(b0, b0 + 2, b0 + 1);
 
   // Combine arrays into a single BufferGeometry
   const totalVertices = topVertexCount + skirtPositions.length / 3;
@@ -300,6 +306,7 @@ export async function buildTerrainMesh(
   geometry.userData = {
     rawHeights: allRawHeights,
     isSkirt: allIsSkirt,
+    minRawZ,
     zBase,
     baseMultiplier: exaggeration,
     maxHeight: maxHeight || 255.0,
@@ -326,20 +333,22 @@ export async function buildTerrainMesh(
     );
   });
 
-  // Top terrain material: realistic matte satellite texture with soft specular relief
+  // Top terrain material: realistic matte satellite texture with DoubleSide rendering
   const terrainMaterial = new THREE.MeshStandardMaterial({
     map: texture,
-    roughness: 0.82,
+    roughness: 0.8,
     metalness: 0.05,
     flatShading: false,
+    side: THREE.DoubleSide,
   });
 
-  // Skirt & Pedestal base material: sleek architectural dark slate/stone
+  // Skirt & Pedestal base material: architectural dark graphite slate with DoubleSide rendering
   const baseMaterial = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#22242f'),
-    roughness: 0.9,
-    metalness: 0.12,
+    color: new THREE.Color('#383b48'),
+    roughness: 0.85,
+    metalness: 0.1,
     flatShading: false,
+    side: THREE.DoubleSide,
   });
 
   const materials = [terrainMaterial, baseMaterial];
