@@ -68,7 +68,10 @@ export async function buildTerrainMesh(
     const v = Math.floor(i / gridWidth) / (gridHeight - 1);
 
     const px = Math.min(imgWidth - 1, Math.floor(u * imgWidth));
-    const py = Math.min(imgHeight - 1, Math.floor((1 - v) * imgHeight));
+    // PlaneGeometry vertices start at row 0 (top / +y) down to row gridHeight - 1 (bottom / -y).
+    // Canvas 2D image coordinates also start at row 0 (top) down to imgHeight - 1 (bottom).
+    // Using v directly aligns height displacement with the texture, eliminating vertical flip / 90-degree slope distortion.
+    const py = Math.min(imgHeight - 1, Math.floor(v * imgHeight));
 
     const pixelIdx = (py * imgWidth + px) * 4;
 
