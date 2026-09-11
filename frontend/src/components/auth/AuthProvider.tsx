@@ -17,6 +17,13 @@ const MOCK_STORAGE_KEY = 'depthwizard_mock_session';
 
 function checkIsMockAuth(): boolean {
   if (import.meta.env.VITE_USE_MOCK_API === 'true') return true;
+  if (
+    !import.meta.env.VITE_SUPABASE_URL ||
+    !import.meta.env.VITE_SUPABASE_ANON_KEY ||
+    import.meta.env.VITE_SUPABASE_URL.includes('placeholder')
+  ) {
+    return true;
+  }
   try {
     return typeof window !== 'undefined' && localStorage.getItem(MOCK_STORAGE_KEY) !== null;
   } catch {
