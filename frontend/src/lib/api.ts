@@ -24,6 +24,11 @@ const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '
 
 export function buildApiUrl(endpoint: string): string {
   const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  // On Vercel deployments, use same-origin relative path to leverage the vercel.json
+  // reverse proxy rewrite directly to Northflank, completely avoiding cross-origin preflight (OPTIONS) errors
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('vercel.app')) {
+    return path;
+  }
   return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
 }
 
