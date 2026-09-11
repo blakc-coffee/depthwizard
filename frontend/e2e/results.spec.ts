@@ -35,9 +35,9 @@ test.describe('Results Screen & 3D Terrain Viewer', () => {
     // Check metres unit label
     await expect(page.getByText(/0.0 – 69.3 m/i)).toBeVisible();
 
-    // Check image previews
-    await expect(page.getByAltText(/original rgb texture preview/i)).toBeVisible();
-    await expect(page.getByAltText(/decoded heightmap preview/i)).toBeVisible();
+    // Verify 2D texture previews are cleanly removed for compact layout
+    await expect(page.getByAltText(/original rgb texture preview/i)).not.toBeVisible();
+    await expect(page.getByAltText(/decoded heightmap preview/i)).not.toBeVisible();
 
     // Check Download DSM button
     await expect(
@@ -87,10 +87,26 @@ test.describe('Results Screen & 3D Terrain Viewer', () => {
     await beforeTab.click();
     await expect(beforeTab).toHaveAttribute('aria-selected', 'true');
 
-    // Test interactive keyboard flight controls (WASD movement)
+    // Check Tactical Flight HUD
+    const flightHud = page.getByTestId('flight-hud');
+    await expect(flightHud).toBeVisible();
+    await expect(page.getByText('HDG', { exact: true })).toBeVisible();
+    await expect(page.getByText('ALT', { exact: true })).toBeVisible();
+    await expect(page.getByText(/1x cruise/i)).toBeVisible();
+
+    // Check Contour overlay button
+    const contourBtn = page.getByRole('button', { name: /contour/i });
+    await expect(contourBtn).toBeVisible();
+    await contourBtn.click();
+
+    // Test interactive keyboard flight controls & verify scrollbar lock (no window scroll on W)
+    const scrollBefore = await page.evaluate(() => window.scrollY);
     await page.keyboard.down('KeyW');
     await page.waitForTimeout(300);
     await page.keyboard.up('KeyW');
+    const scrollAfter = await page.evaluate(() => window.scrollY);
+    expect(scrollAfter).toBe(scrollBefore);
+
     await page.keyboard.press('KeyE');
     await page.waitForTimeout(200);
 

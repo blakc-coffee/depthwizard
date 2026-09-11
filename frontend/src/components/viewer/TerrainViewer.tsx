@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { OutputType } from '../../lib/types';
-import { DisasterMode, TerrainSceneManager, ViewMode } from '../../viewer/TerrainSceneManager';
+import { DisasterMode, FlightTelemetry, TerrainSceneManager, ViewMode } from '../../viewer/TerrainSceneManager';
+import { FlightHUD } from './FlightHUD';
 
 interface TerrainViewerProps {
   heightmapUrl: string;
@@ -26,6 +27,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [viewerError, setViewerError] = useState<string | null>(null);
   const [exaggeration, setExaggeration] = useState<number>(2.2);
+  const [telemetry, setTelemetry] = useState<FlightTelemetry | null>(null);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -39,6 +41,12 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
     try {
       manager = new TerrainSceneManager(containerRef.current);
       managerRef.current = manager;
+
+      manager.setTelemetryCallback((data) => {
+        if (isSubscribed) {
+          setTelemetry(data);
+        }
+      });
 
       manager
         .loadTerrain(
@@ -143,11 +151,8 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
 
       {/* 3D WebGL Canvas Container: Clean soft gray exhibition studio */}
       <div className="flex-1 w-full relative bg-[#e2e6eb] rounded-[12px] overflow-hidden min-h-[360px] sm:min-h-[440px] border border-[#cdd2d9]/80 shadow-inner">
-        {/* Interactive Flight Controls Badge */}
-        <div className="absolute top-3 left-3 z-10 hidden sm:flex items-center space-x-1.5 bg-white/90 backdrop-blur-xs px-2.5 py-1 rounded-[6px] border border-[#cdd2d9] shadow-2xs text-[11px] font-medium text-[#36394a] select-none pointer-events-none">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#5e4cff]" />
-          <span>Fly: <kbd className="font-mono bg-[#f6f8fa] px-1 py-0.5 rounded text-[10px] border border-[#cdd2d9]">WASD</kbd> · Altitude: <kbd className="font-mono bg-[#f6f8fa] px-1 py-0.5 rounded text-[10px] border border-[#cdd2d9]">Q</kbd>/<kbd className="font-mono bg-[#f6f8fa] px-1 py-0.5 rounded text-[10px] border border-[#cdd2d9]">E</kbd></span>
-        </div>
+        {/* Tactical Flight Telemetry HUD */}
+        <FlightHUD telemetry={telemetry} />
 
         {/* Difference Map Legend Overlay */}
         {disasterMode === 'difference' && (
@@ -269,6 +274,18 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
           }`}
         >
           Confidence
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleModeChange('contour')}
+          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
+            activeMode === 'contour'
+              ? 'bg-[#5e4cff] text-white shadow-xs'
+              : 'bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa]'
+          }`}
+        >
+          Contour
         </button>
 
         <button

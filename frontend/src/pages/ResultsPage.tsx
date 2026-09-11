@@ -358,35 +358,6 @@ export const ResultsPage = () => {
                 </div>
               </div>
 
-              {/* Image Previews */}
-              <div className="space-y-3">
-                <div>
-                  <span className="text-xs font-medium text-[#36394a] font-heading block mb-1">
-                    Original RGB Texture
-                  </span>
-                  <div className="bg-[#f6f8fa] rounded-[8px] overflow-hidden border border-[#cdd2d9] max-h-32 flex items-center justify-center">
-                    <img
-                      src={result.artifacts.texture_url}
-                      alt="Original RGB Texture Preview"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <span className="text-xs font-medium text-[#36394a] font-heading block mb-1">
-                    Decoded Heightmap (8-bit LA)
-                  </span>
-                  <div className="bg-[#f6f8fa] rounded-[8px] overflow-hidden border border-[#cdd2d9] max-h-32 flex items-center justify-center">
-                    <img
-                      src={result.artifacts.heightmap_url}
-                      alt="Decoded Heightmap Preview"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                </div>
-              </div>
-
               {/* Primary Action Button matching image_3.png & Playwright test requirement */}
               <div className="pt-2">
                 {result.artifacts.dsm_url ? (

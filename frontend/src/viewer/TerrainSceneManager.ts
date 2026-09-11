@@ -2,8 +2,17 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildTerrainMesh, TerrainMeshBuildParams } from './TerrainMeshBuilder';
 
-export type ViewMode = '3d' | '2d_heightmap' | 'confidence';
+export type ViewMode = '3d' | '2d_heightmap' | 'confidence' | 'contour';
 export type DisasterMode = 'before' | 'after' | 'difference';
+
+export interface FlightTelemetry {
+  altitude: number;
+  headingDeg: number;
+  speedMultiplier: number;
+  coordX: number;
+  coordZ: number;
+  isFlying: boolean;
+}
 
 export class TerrainSceneManager {
   private container: HTMLElement;
@@ -18,7 +27,9 @@ export class TerrainSceneManager {
   private confidenceTexture: THREE.Texture | null = null;
   private afterTexture: THREE.Texture | null = null;
   private differenceTexture: THREE.Texture | null = null;
+  private contourTexture: THREE.Texture | null = null;
   private currentDisasterMode: DisasterMode = 'before';
+  private onTelemetryCallback: ((telemetry: FlightTelemetry) => void) | null = null;
 
   private animationFrameId: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
@@ -58,6 +69,15 @@ export class TerrainSceneManager {
     this.controls.dampingFactor = 0.05;
     this.controls.maxPolarAngle = Math.PI / 2 - 0.02; // allows viewing pedestal side walls
     this.controls.target.copy(this.initialTargetPosition);
+
+    // Prevent mouse wheel from scrolling the outer webpage
+    this.renderer.domElement.addEventListener(
+      'wheel',
+      (e) => {
+        e.preventDefault();
+      },
+      { passive: false }
+    );
 
     // Keyboard flight navigation listeners
     window.addEventListener('keydown', this.handleKeyDown);
@@ -174,10 +194,11 @@ export class TerrainSceneManager {
       this.confidenceTexture = null;
     }
 
-    // Generate preset after-event and difference heatmap textures
+    // Generate preset after-event, difference heatmap, and topographic contour textures
     const baseImg = buildResult.texture?.image as HTMLImageElement | undefined;
     this.afterTexture = this.createAfterTexture(baseImg);
     this.differenceTexture = this.createDifferenceTexture(baseImg);
+    this.contourTexture = this.createContourTexture(baseImg);
 
     this.resetView();
   }
@@ -230,6 +251,12 @@ export class TerrainSceneManager {
       } else if (this.currentTexture) {
         terrainMat.map = this.currentTexture;
       }
+    } else if (mode === 'contour') {
+      if (this.contourTexture) {
+        terrainMat.map = this.contourTexture;
+      } else if (this.currentTexture) {
+        terrainMat.map = this.currentTexture;
+      }
     }
 
     terrainMat.needsUpdate = true;
@@ -261,11 +288,47 @@ export class TerrainSceneManager {
     geom.computeVertexNormals();
   }
 
+  public setTelemetryCallback(cb: ((telemetry: FlightTelemetry) => void) | null): void {
+    this.onTelemetryCallback = cb;
+  }
+
   private handleKeyDown = (e: KeyboardEvent) => {
     const target = e.target as HTMLElement | null;
     if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
 
-    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+    const flightCodes = [
+      'KeyW',
+      'KeyS',
+      'KeyA',
+      'KeyD',
+      'KeyQ',
+      'KeyE',
+      'KeyC',
+      'Space',
+      'ArrowUp',
+      'ArrowDown',
+      'ArrowLeft',
+      'ArrowRight',
+      'ShiftLeft',
+      'ShiftRight',
+    ];
+    const flightKeys = [
+      'w',
+      's',
+      'a',
+      'd',
+      'q',
+      'e',
+      'c',
+      ' ',
+      'arrowup',
+      'arrowdown',
+      'arrowleft',
+      'arrowright',
+    ];
+
+    // Prevent default browser actions (such as window scrolling when W/S/Arrows/Space pressed)
+    if (flightCodes.includes(e.code) || flightKeys.includes(e.key.toLowerCase())) {
       e.preventDefault();
     }
     this.pressedKeys.add(e.code);
@@ -331,6 +394,26 @@ export class TerrainSceneManager {
     }
 
     this.controls.update();
+
+    // Emit live tactical flight telemetry
+    if (this.onTelemetryCallback) {
+      const dx = this.camera.position.x - this.controls.target.x;
+      const dz = this.camera.position.z - this.controls.target.z;
+      const rad = Math.atan2(dx, dz);
+      const headingDeg = Math.round(((rad * 180 / Math.PI) + 360) % 360);
+      const altitude = Math.max(10, Math.round(this.camera.position.y * 28));
+      const isSprinting = this.pressedKeys.has('ShiftLeft') || this.pressedKeys.has('ShiftRight');
+
+      this.onTelemetryCallback({
+        altitude,
+        headingDeg,
+        speedMultiplier: isSprinting ? 2.2 : 1.0,
+        coordX: Math.round(this.camera.position.x * 10) / 10,
+        coordZ: Math.round(this.camera.position.z * 10) / 10,
+        isFlying: this.pressedKeys.size > 0,
+      });
+    }
+
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -469,6 +552,59 @@ export class TerrainSceneManager {
       this.differenceTexture.dispose();
       this.differenceTexture = null;
     }
+    if (this.contourTexture) {
+      this.contourTexture.dispose();
+      this.contourTexture = null;
+    }
+  }
+
+  private createContourTexture(baseImg?: HTMLImageElement): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return new THREE.CanvasTexture(canvas);
+
+    if (baseImg) {
+      ctx.drawImage(baseImg, 0, 0, 512, 512);
+      ctx.fillStyle = 'rgba(235, 240, 246, 0.45)';
+      ctx.fillRect(0, 0, 512, 512);
+    } else {
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(0, 0, 512, 512);
+    }
+
+    // Draw high-precision vector topographic contour curves (#5e4cff)
+    ctx.strokeStyle = '#5e4cff';
+    ctx.lineWidth = 1.5;
+    ctx.globalAlpha = 0.8;
+
+    for (let r = 25; r < 250; r += 24) {
+      ctx.beginPath();
+      for (let theta = 0; theta <= Math.PI * 2; theta += 0.05) {
+        const wobble = Math.sin(theta * 6) * 7 + Math.cos(theta * 4) * 5;
+        const x = 256 + (r + wobble) * Math.cos(theta);
+        const y = 256 + (r + wobble) * Math.sin(theta) * 0.88;
+        if (theta === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.stroke();
+    }
+
+    // Add topographic contour elevation labels
+    ctx.font = 'bold 9px monospace';
+    ctx.fillStyle = '#36394a';
+    ctx.globalAlpha = 0.9;
+    ctx.fillText('120m', 258, 256 - 120);
+    ctx.fillText('140m', 258, 256 - 72);
+    ctx.fillText('160m', 258, 256 - 24);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    return texture;
   }
 
   public dispose(): void {
@@ -492,6 +628,7 @@ export class TerrainSceneManager {
     if (this.confidenceTexture) this.confidenceTexture.dispose();
     if (this.afterTexture) this.afterTexture.dispose();
     if (this.differenceTexture) this.differenceTexture.dispose();
+    if (this.contourTexture) this.contourTexture.dispose();
 
     this.controls.dispose();
     this.renderer.dispose();

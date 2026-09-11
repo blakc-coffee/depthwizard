@@ -137,6 +137,8 @@ test.describe('Input / Upload Screen', () => {
     await expect(page.getByText('Dual Comparison Mode Active')).toBeVisible();
     await expect(page.getByRole('button', { name: /process both images/i })).toBeVisible();
 
+    await page.screenshot({ path: 'e2e-screenshots/07-dual-input-with-image-icons.png', fullPage: true });
+
     // Remove secondary file independently
     await page.getByRole('button', { name: 'Remove', exact: true }).click();
     await expect(page.getByText('post_disaster_event.png')).not.toBeVisible();
