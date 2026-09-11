@@ -10,10 +10,13 @@ import logging
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.core.config import get_settings
 from app.core.errors import ApiException, ErrorCode
 from app.core.logging import configure_logging
+from app.core.rate_limit import limiter
 from app.routes import health, jobs
 
 configure_logging()
@@ -30,6 +33,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+
 app.include_router(health.router)
 app.include_router(jobs.router)
 # routes/compare.py is mounted here once B7 starts (PRD §9.10 B7) — it's a
@@ -39,6 +45,12 @@ app.include_router(jobs.router)
 @app.exception_handler(ApiException)
 def handle_api_exception(request: Request, exc: ApiException) -> JSONResponse:
     return JSONResponse(status_code=exc.http_status, content=exc.to_envelope())
+
+
+@app.exception_handler(RateLimitExceeded)
+def handle_rate_limit_exceeded(request: Request, exc: RateLimitExceeded) -> JSONResponse:
+    fallback = ApiException(ErrorCode.RATE_LIMITED, f"Rate limit exceeded: {exc.detail}")
+    return JSONResponse(status_code=fallback.http_status, content=fallback.to_envelope())
 
 
 @app.exception_handler(Exception)

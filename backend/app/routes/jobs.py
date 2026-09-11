@@ -8,13 +8,14 @@ from __future__ import annotations
 import uuid
 from io import BytesIO
 
-from fastapi import APIRouter, Depends, UploadFile
+from fastapi import APIRouter, Depends, Request, UploadFile
 from PIL import Image
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user_id
 from app.core.config import get_settings
 from app.core.errors import ApiException, ErrorCode
+from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.schemas.errors import ApiError
 from app.schemas.jobs import (
@@ -65,7 +66,9 @@ def _validate_image_content(content: bytes, media_type: str) -> None:
 
 
 @router.post("", status_code=202, response_model=CreateJobResponse)
+@limiter.limit("10/hour")
 async def create_job(
+    request: Request,
     file: UploadFile,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -106,7 +109,9 @@ async def create_job(
 
 
 @router.get("/{job_id}", response_model=JobStatusResponse)
+@limiter.limit("60/minute")
 def get_job(
+    request: Request,
     job_id: uuid.UUID,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -119,7 +124,9 @@ def get_job(
 
 
 @router.get("/{job_id}/result", response_model=JobResult)
+@limiter.limit("30/minute")
 def get_job_result(
+    request: Request,
     job_id: uuid.UUID,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -149,7 +156,9 @@ def get_job_result(
 
 
 @router.get("", response_model=JobListResponse)
+@limiter.limit("30/minute")
 def list_jobs(
+    request: Request,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> JobListResponse:
@@ -170,7 +179,9 @@ def list_jobs(
 
 
 @router.delete("/{job_id}", status_code=204)
+@limiter.limit("20/minute")
 def delete_job(
+    request: Request,
     job_id: uuid.UUID,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),

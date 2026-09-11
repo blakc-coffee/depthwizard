@@ -22,7 +22,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 import jwt
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 
@@ -39,6 +39,7 @@ def _get_jwks_client() -> PyJWKClient:
 
 
 def get_current_user_id(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> str:
     if credentials is None:
@@ -59,4 +60,7 @@ def get_current_user_id(
     if not user_id:
         raise ApiException(ErrorCode.INVALID_TOKEN, "Token has no subject claim.")
 
+    # Lets core/rate_limit.py key throttling by user instead of IP —
+    # ownership/isolation itself never depends on this, only rate limiting does.
+    request.state.user_id = user_id
     return user_id
