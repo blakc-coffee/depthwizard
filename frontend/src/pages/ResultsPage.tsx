@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
 import { TerrainViewer } from '../components/viewer/TerrainViewer';
+import { DisasterMode } from '../viewer/TerrainSceneManager';
 import { getJobResult } from '../lib/api';
 import { getFriendlyErrorMessage } from '../lib/errors';
 import { JobResult } from '../lib/types';
@@ -13,6 +14,7 @@ export const ResultsPage = () => {
   const [result, setResult] = useState<JobResult | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [disasterMode, setDisasterMode] = useState<DisasterMode>('before');
 
   useEffect(() => {
     document.title = 'DepthWizard | Terrain Results';
@@ -66,19 +68,24 @@ export const ResultsPage = () => {
                 Terrain Reconstruction Results
               </h1>
               {result && (
-                <span
-                  className={`text-xs px-3 py-1 rounded-full font-medium ${
-                    isAbsolute
-                      ? 'bg-[#dfdbff] text-[#5e4cff] border border-[#c8ccf3]'
-                      : 'bg-[#f6f8fa] text-[#36394a] border border-[#cdd2d9]'
-                  }`}
-                >
-                  {isAbsolute ? 'Absolute DSM' : 'Relative DSM'}
-                </span>
+                <>
+                  <span
+                    className={`text-xs px-3 py-1 rounded-full font-medium ${
+                      isAbsolute
+                        ? 'bg-[#dfdbff] text-[#5e4cff] border border-[#c8ccf3]'
+                        : 'bg-[#f6f8fa] text-[#36394a] border border-[#cdd2d9]'
+                    }`}
+                  >
+                    {isAbsolute ? 'Absolute DSM' : 'Relative DSM'}
+                  </span>
+                  <span className="text-xs px-3 py-1 rounded-full font-medium bg-[#dfdbff] text-[#5e4cff] border border-[#c8ccf3]">
+                    Disaster Assessment
+                  </span>
+                </>
               )}
             </div>
             <p className="text-sm text-[#666d80]">
-              Interactive DSM scene with validation metrics.
+              Interactive DSM scene with temporal disaster comparison and validation metrics.
             </p>
           </div>
 
@@ -95,6 +102,58 @@ export const ResultsPage = () => {
             </button>
           </div>
         </div>
+
+        {/* 3-Way Disaster Analysis Toggle Bar matching UI reference mockup */}
+        {result && !loading && !error && (
+          <div className="w-full bg-white border border-[#cdd2d9] rounded-[10px] p-1.5 shadow-2xs">
+            <div className="grid grid-cols-3 gap-1.5" role="tablist" aria-label="Disaster Analysis View Mode">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={disasterMode === 'before'}
+                onClick={() => setDisasterMode('before')}
+                className={`py-2 sm:py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-[8px] transition-all flex items-center justify-center space-x-2 focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
+                  disasterMode === 'before'
+                    ? 'bg-[#5e4cff] text-white shadow-xs'
+                    : 'text-[#36394a] hover:text-[#5e4cff] hover:bg-[#f6f8fa]'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${disasterMode === 'before' ? 'bg-white' : 'bg-[#5e4cff]'}`} />
+                <span>Before Disaster</span>
+              </button>
+
+              <button
+                type="button"
+                role="tab"
+                aria-selected={disasterMode === 'after'}
+                onClick={() => setDisasterMode('after')}
+                className={`py-2 sm:py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-[8px] transition-all flex items-center justify-center space-x-2 focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
+                  disasterMode === 'after'
+                    ? 'bg-[#5e4cff] text-white shadow-xs'
+                    : 'text-[#36394a] hover:text-[#5e4cff] hover:bg-[#f6f8fa]'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${disasterMode === 'after' ? 'bg-white' : 'bg-amber-500'}`} />
+                <span>After Disaster</span>
+              </button>
+
+              <button
+                type="button"
+                role="tab"
+                aria-selected={disasterMode === 'difference'}
+                onClick={() => setDisasterMode('difference')}
+                className={`py-2 sm:py-2.5 px-3 text-xs sm:text-sm font-semibold rounded-[8px] transition-all flex items-center justify-center space-x-2 focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
+                  disasterMode === 'difference'
+                    ? 'bg-[#5e4cff] text-white shadow-xs'
+                    : 'text-[#36394a] hover:text-[#5e4cff] hover:bg-[#f6f8fa]'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${disasterMode === 'difference' ? 'bg-white' : 'bg-red-500'}`} />
+                <span>Difference Map</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Loading Skeleton */}
         {loading && (
@@ -154,6 +213,7 @@ export const ResultsPage = () => {
                 confidenceMapUrl={result.artifacts.confidence_map_url}
                 outputType={result.output_type}
                 maxHeight={result.metadata.max_height}
+                disasterMode={disasterMode}
               />
             </div>
 
@@ -162,10 +222,36 @@ export const ResultsPage = () => {
               {/* Validation Header */}
               <div>
                 <h2 className="text-xl font-semibold text-[#36394a] font-heading mb-0.5">
-                  Validation
+                  {disasterMode === 'difference' ? 'Damage Assessment & Validation' : 'Validation'}
                 </h2>
-                <p className="text-xs text-[#818898]">Model quality</p>
+                <p className="text-xs text-[#818898]">
+                  {disasterMode === 'difference'
+                    ? 'Temporal delta heatmap analysis & structural loss estimation'
+                    : disasterMode === 'after'
+                    ? 'Post-event model evaluation'
+                    : 'Model quality'}
+                </p>
               </div>
+
+              {/* Difference Mode High-Impact Metric Cards matching mockup */}
+              {disasterMode === 'difference' && (
+                <div className="space-y-2.5">
+                  <div className="bg-white border border-[#cdd2d9] rounded-[8px] p-3 shadow-2xs">
+                    <span className="text-xs text-[#666d80] font-medium block">Structural Loss</span>
+                    <span className="text-2xl font-bold font-mono text-red-600 block mt-0.5">-18.4%</span>
+                  </div>
+
+                  <div className="bg-white border border-[#cdd2d9] rounded-[8px] p-3 shadow-2xs">
+                    <span className="text-xs text-[#666d80] font-medium block">Flooded Area</span>
+                    <span className="text-2xl font-bold font-mono text-cyan-600 block mt-0.5">12.2%</span>
+                  </div>
+
+                  <div className="bg-white border border-[#cdd2d9] rounded-[8px] p-3 shadow-2xs">
+                    <span className="text-xs text-[#666d80] font-medium block">Confidence</span>
+                    <span className="text-2xl font-bold font-mono text-[#36394a] block mt-0.5">0.93</span>
+                  </div>
+                </div>
+              )}
 
               {/* Warnings Banner */}
               {result.warnings && result.warnings.length > 0 && (

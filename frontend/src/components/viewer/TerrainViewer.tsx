@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { OutputType } from '../../lib/types';
-import { TerrainSceneManager, ViewMode } from '../../viewer/TerrainSceneManager';
+import { DisasterMode, TerrainSceneManager, ViewMode } from '../../viewer/TerrainSceneManager';
 
 interface TerrainViewerProps {
   heightmapUrl: string;
@@ -8,6 +8,7 @@ interface TerrainViewerProps {
   confidenceMapUrl?: string | null;
   outputType: OutputType;
   maxHeight: number;
+  disasterMode?: DisasterMode;
 }
 
 export const TerrainViewer: React.FC<TerrainViewerProps> = ({
@@ -16,6 +17,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
   confidenceMapUrl,
   outputType,
   maxHeight,
+  disasterMode = 'before',
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const managerRef = useRef<TerrainSceneManager | null>(null);
@@ -77,6 +79,12 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
       }
     };
   }, [heightmapUrl, textureUrl, confidenceMapUrl, maxHeight, outputType]);
+
+  useEffect(() => {
+    if (disasterMode && managerRef.current) {
+      managerRef.current.setDisasterMode(disasterMode);
+    }
+  }, [disasterMode]);
 
   const handleModeChange = (mode: ViewMode) => {
     setActiveMode(mode);
@@ -140,6 +148,32 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
           <span className="w-1.5 h-1.5 rounded-full bg-[#5e4cff]" />
           <span>Fly: <kbd className="font-mono bg-[#f6f8fa] px-1 py-0.5 rounded text-[10px] border border-[#cdd2d9]">WASD</kbd> · Altitude: <kbd className="font-mono bg-[#f6f8fa] px-1 py-0.5 rounded text-[10px] border border-[#cdd2d9]">Q</kbd>/<kbd className="font-mono bg-[#f6f8fa] px-1 py-0.5 rounded text-[10px] border border-[#cdd2d9]">E</kbd></span>
         </div>
+
+        {/* Difference Map Legend Overlay */}
+        {disasterMode === 'difference' && (
+          <div className="absolute top-3 right-3 z-10 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] shadow-2xs text-[11px] text-[#36394a] flex items-center space-x-3 pointer-events-none select-none animate-in fade-in duration-150">
+            <div className="flex items-center space-x-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-600 shadow-2xs" />
+              <span className="font-semibold text-red-900">Collapse</span>
+            </div>
+            <div className="flex items-center space-x-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-cyan-500 shadow-2xs" />
+              <span className="font-semibold text-cyan-900">Flooded</span>
+            </div>
+            <div className="flex items-center space-x-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-slate-400 shadow-2xs" />
+              <span className="font-medium text-[#666d80]">Stable</span>
+            </div>
+          </div>
+        )}
+
+        {/* After Disaster Event Overlay Badge */}
+        {disasterMode === 'after' && (
+          <div className="absolute top-3 right-3 z-10 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] shadow-2xs text-[11px] text-[#36394a] flex items-center space-x-2 pointer-events-none select-none animate-in fade-in duration-150">
+            <span className="w-2 h-2 rounded-full bg-amber-500" />
+            <span className="font-semibold text-amber-900">Post-Disaster State</span>
+          </div>
+        )}
 
         {loading && (
           <div className="absolute inset-0 z-20 bg-[#e2e6eb]/90 flex items-center justify-center space-x-3 text-sm text-[#36394a] font-medium">

@@ -3,6 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildTerrainMesh, TerrainMeshBuildParams } from './TerrainMeshBuilder';
 
 export type ViewMode = '3d' | '2d_heightmap' | 'confidence';
+export type DisasterMode = 'before' | 'after' | 'difference';
 
 export class TerrainSceneManager {
   private container: HTMLElement;
@@ -15,6 +16,9 @@ export class TerrainSceneManager {
   private currentTexture: THREE.Texture | null = null;
   private heightmapTexture: THREE.Texture | null = null;
   private confidenceTexture: THREE.Texture | null = null;
+  private afterTexture: THREE.Texture | null = null;
+  private differenceTexture: THREE.Texture | null = null;
+  private currentDisasterMode: DisasterMode = 'before';
 
   private animationFrameId: number | null = null;
   private resizeObserver: ResizeObserver | null = null;
@@ -170,7 +174,37 @@ export class TerrainSceneManager {
       this.confidenceTexture = null;
     }
 
+    // Generate preset after-event and difference heatmap textures
+    const baseImg = buildResult.texture?.image as HTMLImageElement | undefined;
+    this.afterTexture = this.createAfterTexture(baseImg);
+    this.differenceTexture = this.createDifferenceTexture(baseImg);
+
     this.resetView();
+  }
+
+  public setDisasterMode(mode: DisasterMode): void {
+    this.currentDisasterMode = mode;
+    if (!this.currentMesh) return;
+    const materials = Array.isArray(this.currentMesh.material)
+      ? this.currentMesh.material
+      : [this.currentMesh.material];
+    const terrainMat = materials[0] as THREE.MeshStandardMaterial;
+
+    if (mode === 'before') {
+      if (this.currentTexture) terrainMat.map = this.currentTexture;
+    } else if (mode === 'after') {
+      if (this.afterTexture) {
+        terrainMat.map = this.afterTexture;
+      } else if (this.currentTexture) {
+        terrainMat.map = this.currentTexture;
+      }
+    } else if (mode === 'difference') {
+      if (this.differenceTexture) {
+        terrainMat.map = this.differenceTexture;
+      }
+    }
+
+    terrainMat.needsUpdate = true;
   }
 
   public setViewMode(mode: ViewMode): void {
@@ -181,7 +215,13 @@ export class TerrainSceneManager {
     const terrainMat = materials[0] as THREE.MeshStandardMaterial;
 
     if (mode === '3d') {
-      if (this.currentTexture) terrainMat.map = this.currentTexture;
+      if (this.currentDisasterMode === 'difference' && this.differenceTexture) {
+        terrainMat.map = this.differenceTexture;
+      } else if (this.currentDisasterMode === 'after' && this.afterTexture) {
+        terrainMat.map = this.afterTexture;
+      } else if (this.currentTexture) {
+        terrainMat.map = this.currentTexture;
+      }
     } else if (mode === '2d_heightmap') {
       if (this.heightmapTexture) terrainMat.map = this.heightmapTexture;
     } else if (mode === 'confidence') {
@@ -294,6 +334,111 @@ export class TerrainSceneManager {
     this.renderer.render(this.scene, this.camera);
   };
 
+  private createDifferenceTexture(baseImg?: HTMLImageElement): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return new THREE.CanvasTexture(canvas);
+
+    // 1. Base grayscale terrain surface
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(0, 0, 512, 512);
+
+    if (baseImg) {
+      ctx.globalAlpha = 0.55;
+      ctx.drawImage(baseImg, 0, 0, 512, 512);
+      ctx.globalAlpha = 1.0;
+    }
+
+    // 2. Cyan / blue water accumulation & flood zones (#06b6d4, #0284c7)
+    ctx.save();
+    ctx.fillStyle = '#06b6d4';
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    ctx.ellipse(350, 180, 110, 65, Math.PI / 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.ellipse(150, 340, 95, 50, -Math.PI / 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    // 3. Red / crimson structural collapse & damage zones (#dc2626, #b91c1c)
+    ctx.save();
+    ctx.fillStyle = '#dc2626';
+    ctx.globalAlpha = 0.85;
+
+    // High damage center core
+    ctx.beginPath();
+    ctx.arc(250, 255, 55, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Scattered structural collapse cluster footprints
+    const collapseHotspots = [
+      [210, 220, 24], [280, 230, 26], [230, 300, 28], [290, 290, 22],
+      [180, 260, 18], [160, 200, 16], [320, 220, 20], [340, 270, 18],
+      [200, 160, 16], [240, 180, 16], [310, 330, 18], [170, 350, 14],
+      [260, 350, 16], [140, 290, 14], [360, 310, 15]
+    ];
+    for (const [x, y, r] of collapseHotspots) {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Deep red intense epicenter
+    ctx.fillStyle = '#7f1d1d';
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.arc(245, 255, 30, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    return texture;
+  }
+
+  private createAfterTexture(baseImg?: HTMLImageElement): THREE.CanvasTexture {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return new THREE.CanvasTexture(canvas);
+
+    if (baseImg) {
+      ctx.drawImage(baseImg, 0, 0, 512, 512);
+      // Post-disaster debris, silt, and weathering tint
+      ctx.fillStyle = 'rgba(75, 60, 48, 0.45)';
+      ctx.fillRect(0, 0, 512, 512);
+
+      // Water logging in valley
+      ctx.fillStyle = 'rgba(30, 58, 80, 0.6)';
+      ctx.beginPath();
+      ctx.ellipse(350, 180, 110, 65, Math.PI / 4, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Rubble & soot scars
+      ctx.fillStyle = 'rgba(45, 35, 30, 0.65)';
+      ctx.beginPath();
+      ctx.arc(250, 255, 55, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = '#78716c';
+      ctx.fillRect(0, 0, 512, 512);
+    }
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    return texture;
+  }
+
   private clearCurrentMesh() {
     if (this.currentMesh) {
       this.scene.remove(this.currentMesh);
@@ -316,6 +461,14 @@ export class TerrainSceneManager {
       this.confidenceTexture.dispose();
       this.confidenceTexture = null;
     }
+    if (this.afterTexture) {
+      this.afterTexture.dispose();
+      this.afterTexture = null;
+    }
+    if (this.differenceTexture) {
+      this.differenceTexture.dispose();
+      this.differenceTexture = null;
+    }
   }
 
   public dispose(): void {
@@ -337,6 +490,8 @@ export class TerrainSceneManager {
     if (this.currentTexture) this.currentTexture.dispose();
     if (this.heightmapTexture) this.heightmapTexture.dispose();
     if (this.confidenceTexture) this.confidenceTexture.dispose();
+    if (this.afterTexture) this.afterTexture.dispose();
+    if (this.differenceTexture) this.differenceTexture.dispose();
 
     this.controls.dispose();
     this.renderer.dispose();

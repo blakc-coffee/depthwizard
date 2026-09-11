@@ -19,6 +19,26 @@ test.describe('Authentication & Application Shell', () => {
   });
 
   test('submit button is keyboard operable', async ({ page }) => {
+    // Intercept Supabase token call so test is deterministic with or without live backend
+    await page.route('**/auth/v1/token*', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          access_token: 'mock-access-token',
+          token_type: 'bearer',
+          expires_in: 3600,
+          refresh_token: 'mock-refresh-token',
+          user: {
+            id: 'mock-user-1234',
+            aud: 'authenticated',
+            role: 'authenticated',
+            email: 'engineer@spatial.io',
+          },
+        }),
+      });
+    });
+
     await page.goto('/login');
     const emailInput = page.getByLabel('Email address');
     const passwordInput = page.getByLabel('Password');

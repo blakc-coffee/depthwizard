@@ -49,12 +49,43 @@ test.describe('Results Screen & 3D Terrain Viewer', () => {
     await expect(page.getByRole('button', { name: /reset view/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /flythrough/i })).not.toBeVisible();
 
-    // Verify keyboard flight navigation hint is present
-    await expect(page.getByText(/WASD or Arrows to fly/i)).toBeVisible();
+    // Check 3-way Disaster Analysis Toggle Bar
+    const beforeTab = page.getByRole('tab', { name: /before disaster/i });
+    const afterTab = page.getByRole('tab', { name: /after disaster/i });
+    const differenceTab = page.getByRole('tab', { name: /difference map/i });
 
-    // Wait for 3D canvas render and capture default state
+    await expect(beforeTab).toBeVisible();
+    await expect(afterTab).toBeVisible();
+    await expect(differenceTab).toBeVisible();
+    await expect(beforeTab).toHaveAttribute('aria-selected', 'true');
+
+    // Wait for 3D canvas render and capture default (Before Disaster) state
     await page.waitForTimeout(600);
-    await page.screenshot({ path: 'e2e-screenshots/01-absolute-dsm-default.png', fullPage: true });
+    await page.screenshot({ path: 'e2e-screenshots/01-before-disaster.png', fullPage: true });
+
+    // Test switching to "After Disaster"
+    await afterTab.click();
+    await expect(afterTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByText('Post-Disaster State')).toBeVisible();
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: 'e2e-screenshots/02-after-disaster.png', fullPage: true });
+
+    // Test switching to "Difference Map" preset
+    await differenceTab.click();
+    await expect(differenceTab).toHaveAttribute('aria-selected', 'true');
+    await expect(page.getByRole('heading', { name: /damage assessment & validation/i })).toBeVisible();
+    await expect(page.getByText('Structural Loss', { exact: true })).toBeVisible();
+    await expect(page.getByText('-18.4%')).toBeVisible();
+    await expect(page.getByText('Flooded Area', { exact: true })).toBeVisible();
+    await expect(page.getByText('12.2%')).toBeVisible();
+    await expect(page.getByText('Collapse')).toBeVisible();
+    await expect(page.getByText('Flooded', { exact: true })).toBeVisible();
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: 'e2e-screenshots/03-difference-map.png', fullPage: true });
+
+    // Return to "Before Disaster"
+    await beforeTab.click();
+    await expect(beforeTab).toHaveAttribute('aria-selected', 'true');
 
     // Test interactive keyboard flight controls (WASD movement)
     await page.keyboard.down('KeyW');
@@ -66,7 +97,7 @@ test.describe('Results Screen & 3D Terrain Viewer', () => {
     // Verify Reset View restores perspective
     await page.getByRole('button', { name: /reset view/i }).click();
     await page.waitForTimeout(400);
-    await page.screenshot({ path: 'e2e-screenshots/03-flight-reset-view.png', fullPage: true });
+    await page.screenshot({ path: 'e2e-screenshots/04-flight-reset-view.png', fullPage: true });
   });
 
   test('Relative DSM results page displays relative units, warnings, N/A metrics, and unavailable DSM', async ({
