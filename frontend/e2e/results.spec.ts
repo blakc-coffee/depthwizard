@@ -47,30 +47,26 @@ test.describe('Results Screen & 3D Terrain Viewer', () => {
     // Check 3D Viewer overlay controls
     await expect(page.getByRole('button', { name: /normal/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /reset view/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /flythrough/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /flythrough/i })).not.toBeVisible();
+
+    // Verify keyboard flight navigation hint is present
+    await expect(page.getByText(/WASD or Arrows to fly/i)).toBeVisible();
 
     // Wait for 3D canvas render and capture default state
     await page.waitForTimeout(600);
     await page.screenshot({ path: 'e2e-screenshots/01-absolute-dsm-default.png', fullPage: true });
 
-    // Test 3D Reconnaissance Flythrough activation
-    await page.getByRole('button', { name: /flythrough/i }).click();
+    // Test interactive keyboard flight controls (WASD movement)
+    await page.keyboard.down('KeyW');
+    await page.waitForTimeout(300);
+    await page.keyboard.up('KeyW');
+    await page.keyboard.press('KeyE');
+    await page.waitForTimeout(200);
 
-    // Verify HUD banner appears and button switches to "Exit Flight"
-    await expect(page.getByRole('button', { name: /exit flight/i })).toBeVisible();
-    await expect(page.getByText(/reconnaissance flight active/i)).toBeVisible();
-
-    // Capture in-flight reconnaissance HUD screenshot
-    await page.waitForTimeout(1000);
-    await page.screenshot({ path: 'e2e-screenshots/02-flythrough-active-hud.png', fullPage: true });
-
-    // Test exiting flight via Escape key
-    await page.keyboard.press('Escape');
-    await expect(page.getByRole('button', { name: /flythrough/i })).toBeVisible();
-    await expect(page.getByText(/reconnaissance flight active/i)).not.toBeVisible();
-
-    // Capture post-flight restored state screenshot
-    await page.screenshot({ path: 'e2e-screenshots/03-flythrough-exited.png', fullPage: true });
+    // Verify Reset View restores perspective
+    await page.getByRole('button', { name: /reset view/i }).click();
+    await page.waitForTimeout(400);
+    await page.screenshot({ path: 'e2e-screenshots/03-flight-reset-view.png', fullPage: true });
   });
 
   test('Relative DSM results page displays relative units, warnings, N/A metrics, and unavailable DSM', async ({

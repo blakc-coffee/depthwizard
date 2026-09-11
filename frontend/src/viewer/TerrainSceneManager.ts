@@ -22,16 +22,9 @@ export class TerrainSceneManager {
   private initialCameraPosition = new THREE.Vector3(0, 7.5, 11);
   private initialTargetPosition = new THREE.Vector3(0, 0, 0);
 
-  // 3D Reconnaissance Flythrough state
-  private isFlying: boolean = false;
-  private flightProgress: number = 0;
-  private flightClock: THREE.Clock = new THREE.Clock();
-  private flightCurve: THREE.CatmullRomCurve3 | null = null;
-  private flightSpeed: number = 0.045; // ~22s per complete reconnaissance loop
-  private lookAheadOffset: number = 0.05;
-  private currentLookTarget: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
-
-  public onFlightStateChange?: (isFlying: boolean) => void;
+  // Active clock for delta-timed keyboard flight movement
+  private clock: THREE.Clock = new THREE.Clock();
+  private pressedKeys = new Set<string>();
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -62,9 +55,10 @@ export class TerrainSceneManager {
     this.controls.maxPolarAngle = Math.PI / 2 - 0.02; // allows viewing pedestal side walls
     this.controls.target.copy(this.initialTargetPosition);
 
-    // Stop flythrough on direct user interaction with canvas
-    this.renderer.domElement.addEventListener('pointerdown', this.handleUserInteraction);
-    this.renderer.domElement.addEventListener('wheel', this.handleUserInteraction, { passive: true });
+    // Keyboard flight navigation listeners
+    window.addEventListener('keydown', this.handleKeyDown);
+    window.addEventListener('keyup', this.handleKeyUp);
+    window.addEventListener('blur', this.handleWindowBlur);
 
     // Lights
     this.setupLighting();
@@ -127,9 +121,6 @@ export class TerrainSceneManager {
     this.currentTexture = buildResult.texture;
 
     this.scene.add(this.currentMesh);
-
-    // Build 3D reconnaissance flight curve fitted to terrain dimensions
-    this.buildFlightPath(buildResult.width, buildResult.height);
 
     // Texture loader for overlays
     const textureLoader = new THREE.TextureLoader();
@@ -230,73 +221,33 @@ export class TerrainSceneManager {
     geom.computeVertexNormals();
   }
 
-  private buildFlightPath(imgWidth: number, imgHeight: number): void {
-    const hw = 5.0; // half-width of 10-unit mesh
-    const hh = ((imgHeight || 256) / (imgWidth || 256)) * hw; // half-depth
+  private handleKeyDown = (e: KeyboardEvent) => {
+    const target = e.target as HTMLElement | null;
+    if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
 
-    // Strategic reconnaissance waypoints hovering over and through the terrain:
-    // 0. South high approach: overview of entire terrain block
-    // 1. South-West banking descent: sweeps toward side cliffs
-    // 2. Center low-altitude skimming pass: clears building roofs and peaks at close range
-    // 3. East flank low sweep: close inspection of structures
-    // 4. East cliff banking climb: ascending turn showcasing pedestal side walls
-    // 5. North high overlook: panoramic view from opposite angle
-    // 6. West descending ridge turn: completing the reconnaissance loop
-    const waypoints = [
-      new THREE.Vector3(0, 5.8, hh * 1.35),
-      new THREE.Vector3(-hw * 0.75, 3.2, hh * 0.6),
-      new THREE.Vector3(-hw * 0.25, 2.0, 0.1),
-      new THREE.Vector3(hw * 0.65, 2.5, -hh * 0.4),
-      new THREE.Vector3(hw * 0.9, 4.2, 0),
-      new THREE.Vector3(hw * 0.2, 5.5, -hh * 1.25),
-      new THREE.Vector3(-hw * 0.85, 4.0, -hh * 0.3),
-    ];
-
-    this.flightCurve = new THREE.CatmullRomCurve3(waypoints, true, 'centripetal');
-    this.flightProgress = 0;
-  }
-
-  private handleUserInteraction = () => {
-    if (this.isFlying) {
-      this.stopFlythrough();
+    if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+      e.preventDefault();
     }
+    this.pressedKeys.add(e.code);
   };
 
-  public startFlythrough(): void {
-    if (!this.flightCurve) {
-      this.buildFlightPath(256, 256);
-    }
-    this.isFlying = true;
-    this.controls.enabled = false;
-    this.flightClock.start();
-    this.onFlightStateChange?.(true);
-  }
+  private handleKeyUp = (e: KeyboardEvent) => {
+    this.pressedKeys.delete(e.code);
+  };
+
+  private handleWindowBlur = () => {
+    this.pressedKeys.clear();
+  };
 
   public stopFlythrough(): void {
-    if (!this.isFlying) return;
-    this.isFlying = false;
-    this.controls.enabled = true;
-    this.controls.target.copy(this.currentLookTarget);
-    this.controls.update();
-    this.onFlightStateChange?.(false);
-  }
-
-  public toggleFlythrough(): boolean {
-    if (this.isFlying) {
-      this.stopFlythrough();
-      return false;
-    } else {
-      this.startFlythrough();
-      return true;
-    }
+    // Backwards-compatibility stub
   }
 
   public getIsFlying(): boolean {
-    return this.isFlying;
+    return false;
   }
 
   public resetView(): void {
-    this.stopFlythrough();
     this.camera.position.copy(this.initialCameraPosition);
     this.controls.target.copy(this.initialTargetPosition);
     this.controls.update();
@@ -305,32 +256,41 @@ export class TerrainSceneManager {
   private animate = () => {
     this.animationFrameId = requestAnimationFrame(this.animate);
 
-    if (this.isFlying && this.flightCurve) {
-      const delta = Math.min(this.flightClock.getDelta(), 0.1);
-      this.flightProgress = (this.flightProgress + delta * this.flightSpeed) % 1.0;
+    const delta = Math.min(this.clock.getDelta(), 0.1);
 
-      // Position along 3D reconnaissance flight path
-      const camPos = this.flightCurve.getPointAt(this.flightProgress);
-      this.camera.position.copy(camPos);
+    if (this.pressedKeys.size > 0) {
+      const isSprinting = this.pressedKeys.has('ShiftLeft') || this.pressedKeys.has('ShiftRight');
+      const baseSpeed = 7.0;
+      const speed = isSprinting ? baseSpeed * 2.2 : baseSpeed;
+      const moveDist = speed * delta;
 
-      // Look-ahead target along flight path
-      const lookProgress = (this.flightProgress + this.lookAheadOffset) % 1.0;
-      const forwardPoint = this.flightCurve.getPointAt(lookProgress);
+      const forward = new THREE.Vector3();
+      this.camera.getWorldDirection(forward);
+      forward.y = 0;
+      if (forward.lengthSq() > 0.0001) {
+        forward.normalize();
+      }
 
-      // Blend forward trajectory with terrain center (0, 0.35, 0) for natural UAV tilt
-      const targetLook = new THREE.Vector3()
-        .copy(forwardPoint)
-        .multiplyScalar(0.7)
-        .add(new THREE.Vector3(0, 0.35, 0).multiplyScalar(0.3));
+      const right = new THREE.Vector3().crossVectors(forward, this.camera.up).normalize();
+      const moveDelta = new THREE.Vector3(0, 0, 0);
 
-      this.currentLookTarget.lerp(targetLook, 0.1);
-      this.camera.lookAt(this.currentLookTarget);
+      if (this.pressedKeys.has('KeyW') || this.pressedKeys.has('ArrowUp')) moveDelta.add(forward);
+      if (this.pressedKeys.has('KeyS') || this.pressedKeys.has('ArrowDown')) moveDelta.sub(forward);
+      if (this.pressedKeys.has('KeyD') || this.pressedKeys.has('ArrowRight')) moveDelta.add(right);
+      if (this.pressedKeys.has('KeyA') || this.pressedKeys.has('ArrowLeft')) moveDelta.sub(right);
+      if (this.pressedKeys.has('KeyE') || this.pressedKeys.has('Space')) moveDelta.y += 1.0;
+      if (this.pressedKeys.has('KeyQ') || this.pressedKeys.has('KeyC')) moveDelta.y -= 1.0;
 
-      this.controls.target.copy(this.currentLookTarget);
-    } else {
-      this.controls.update();
+      if (moveDelta.lengthSq() > 0.0001) {
+        moveDelta.normalize().multiplyScalar(moveDist);
+        this.camera.position.add(moveDelta);
+        // Prevent camera from dipping below the base pedestal floor
+        this.camera.position.y = Math.max(0.4, this.camera.position.y);
+        this.controls.target.add(moveDelta);
+      }
     }
 
+    this.controls.update();
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -359,19 +319,17 @@ export class TerrainSceneManager {
   }
 
   public dispose(): void {
-    this.stopFlythrough();
-
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
     }
 
+    window.removeEventListener('keydown', this.handleKeyDown);
+    window.removeEventListener('keyup', this.handleKeyUp);
+    window.removeEventListener('blur', this.handleWindowBlur);
+    this.pressedKeys.clear();
+
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
-    }
-
-    if (this.renderer && this.renderer.domElement) {
-      this.renderer.domElement.removeEventListener('pointerdown', this.handleUserInteraction);
-      this.renderer.domElement.removeEventListener('wheel', this.handleUserInteraction);
     }
 
     this.clearCurrentMesh();
