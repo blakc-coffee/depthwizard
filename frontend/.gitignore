@@ -4,3 +4,4 @@ dist-ssr
 *.local
 playwright-report
 test-results
+e2e-screenshots

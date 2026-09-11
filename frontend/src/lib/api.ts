@@ -17,7 +17,8 @@ import {
 export const isMockApi =
   import.meta.env.VITE_USE_MOCK_API === 'true' ||
   !import.meta.env.VITE_SUPABASE_URL ||
-  import.meta.env.VITE_SUPABASE_URL.includes('placeholder');
+  import.meta.env.VITE_SUPABASE_URL.includes('placeholder') ||
+  (typeof window !== 'undefined' && localStorage.getItem('depthwizard_mock_session') !== null);
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 
@@ -121,7 +122,7 @@ export async function createJob(file: File): Promise<CreateJobResponse> {
 }
 
 export async function getJob(jobId: string): Promise<JobStatusResponse> {
-  if (isMockApi) {
+  if (isMockApi || jobId.startsWith('mock-')) {
     return mockGetJob(jobId);
   }
 
@@ -142,7 +143,7 @@ export async function getJob(jobId: string): Promise<JobStatusResponse> {
 }
 
 export async function getJobResult(jobId: string): Promise<JobResult> {
-  if (isMockApi) {
+  if (isMockApi || jobId.startsWith('mock-')) {
     return mockGetJobResult(jobId);
   }
 

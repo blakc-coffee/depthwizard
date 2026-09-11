@@ -42,8 +42,8 @@ export async function buildTerrainMesh(
   const imageData = ctx.getImageData(0, 0, imgWidth, imgHeight);
   const data = imageData.data; // RGBA buffer
 
-  // 3. Grid resolution: 256x256 (65,536 vertices) for high-definition 3D ridges, cliffs, and buildings
-  const maxGridDim = 256;
+  // 3. Grid resolution: 384x384 (147,456 vertices) for high-definition 3D ridges, cliffs, and buildings
+  const maxGridDim = 384;
   const gridWidth = Math.min(imgWidth, maxGridDim);
   const gridHeight = Math.min(imgHeight, maxGridDim);
 
@@ -63,27 +63,17 @@ export async function buildTerrainMesh(
   }
   const lumRange = maxLum > minLum ? maxLum - minLum : 255;
 
-  // Build top surface vertices & UVs
-  const topVertexCount = gridWidth * gridHeight;
-  const zScale = planeWidth / 10;
-  const unitHeightScale = zScale * 1.5;
-
-  const topPositions = new Float32Array(topVertexCount * 3);
-  const topUVs = new Float32Array(topVertexCount * 2);
-  const rawHeights = new Float32Array(topVertexCount);
-
-  let minRawZ = Infinity;
+  // Pass 1: Extract normalized elevation with flat water/ground clamping
+  const totalPoints = gridWidth * gridHeight;
+  const rawNormalizedGrid = new Float32Array(totalPoints);
 
   for (let iy = 0; iy < gridHeight; iy++) {
     const v = iy / (gridHeight - 1);
     const py = Math.min(imgHeight - 1, Math.floor(v * imgHeight));
-    const yPos = planeHeight / 2 - v * planeHeight;
 
     for (let ix = 0; ix < gridWidth; ix++) {
       const u = ix / (gridWidth - 1);
       const px = Math.min(imgWidth - 1, Math.floor(u * imgWidth));
-      const xPos = -planeWidth / 2 + u * planeWidth;
-
       const idx = iy * gridWidth + ix;
       const pixelIdx = (py * imgWidth + px) * 4;
 
@@ -96,8 +86,70 @@ export async function buildTerrainMesh(
       }
       norm = Math.max(0, Math.min(1, norm));
 
-      // Slightly non-linear response to exaggerate canyon drops and cliff ridges
-      const shapedHeight = Math.pow(norm, 0.95);
+      // Water / flat baseline clamping:
+      // Lowest ~8% of elevation corresponds to lakes, rivers, or base terrain.
+      // Clamping creates mirror-flat water surfaces and removes lumpy noise.
+      if (norm < 0.08) {
+        norm = norm * 0.15;
+      }
+
+      rawNormalizedGrid[idx] = norm;
+    }
+  }
+
+  // Pass 2: 2D Laplacian Unsharp-Mask Edge-Sharpening Filter
+  // Amplifies high-frequency height gradients to steepen building walls and ridge crests,
+  // transforming rounded mounds into crisp vertical architectural geometry.
+  const sharpenedGrid = new Float32Array(totalPoints);
+  const sharpStrength = 0.65; // High-frequency boost factor
+
+  for (let iy = 0; iy < gridHeight; iy++) {
+    const rowOffset = iy * gridWidth;
+    for (let ix = 0; ix < gridWidth; ix++) {
+      const idx = rowOffset + ix;
+      const centerVal = rawNormalizedGrid[idx];
+
+      const left = ix > 0 ? rawNormalizedGrid[idx - 1] : centerVal;
+      const right = ix < gridWidth - 1 ? rawNormalizedGrid[idx + 1] : centerVal;
+      const top = iy > 0 ? rawNormalizedGrid[idx - gridWidth] : centerVal;
+      const bottom = iy < gridHeight - 1 ? rawNormalizedGrid[idx + gridWidth] : centerVal;
+
+      const neighborAvg = (left + right + top + bottom) * 0.25;
+      const highFreq = centerVal - neighborAvg;
+
+      let enhanced = centerVal + sharpStrength * highFreq;
+      enhanced = Math.max(0, Math.min(1, enhanced));
+
+      // Architectural step response: slight contrast boost for building roofs vs street level
+      const shaped = enhanced > 0.12
+        ? Math.pow(enhanced, 0.92)
+        : enhanced * 0.82;
+
+      sharpenedGrid[idx] = shaped;
+    }
+  }
+
+  // Build top surface vertices & UVs
+  const topVertexCount = totalPoints;
+  const zScale = planeWidth / 10;
+  const unitHeightScale = zScale * 1.5;
+
+  const topPositions = new Float32Array(topVertexCount * 3);
+  const topUVs = new Float32Array(topVertexCount * 2);
+  const rawHeights = new Float32Array(topVertexCount);
+
+  let minRawZ = Infinity;
+
+  for (let iy = 0; iy < gridHeight; iy++) {
+    const v = iy / (gridHeight - 1);
+    const yPos = planeHeight / 2 - v * planeHeight;
+
+    for (let ix = 0; ix < gridWidth; ix++) {
+      const u = ix / (gridWidth - 1);
+      const xPos = -planeWidth / 2 + u * planeWidth;
+      const idx = iy * gridWidth + ix;
+
+      const shapedHeight = sharpenedGrid[idx];
       const unitZ = shapedHeight * unitHeightScale;
       const zValue = unitZ * exaggeration;
 
@@ -325,7 +377,10 @@ export async function buildTerrainMesh(
         tex.colorSpace = THREE.SRGBColorSpace;
         tex.wrapS = THREE.ClampToEdgeWrapping;
         tex.wrapT = THREE.ClampToEdgeWrapping;
-        tex.anisotropy = 8;
+        tex.anisotropy = 16;
+        tex.generateMipmaps = true;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
         resolve(tex);
       },
       undefined,
@@ -336,8 +391,8 @@ export async function buildTerrainMesh(
   // Top terrain material: realistic matte satellite texture with DoubleSide rendering
   const terrainMaterial = new THREE.MeshStandardMaterial({
     map: texture,
-    roughness: 0.8,
-    metalness: 0.05,
+    roughness: 0.72,
+    metalness: 0.08,
     flatShading: false,
     side: THREE.DoubleSide,
   });

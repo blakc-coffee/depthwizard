@@ -47,6 +47,30 @@ test.describe('Results Screen & 3D Terrain Viewer', () => {
     // Check 3D Viewer overlay controls
     await expect(page.getByRole('button', { name: /normal/i })).toBeVisible();
     await expect(page.getByRole('button', { name: /reset view/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /flythrough/i })).toBeVisible();
+
+    // Wait for 3D canvas render and capture default state
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: 'e2e-screenshots/01-absolute-dsm-default.png', fullPage: true });
+
+    // Test 3D Reconnaissance Flythrough activation
+    await page.getByRole('button', { name: /flythrough/i }).click();
+
+    // Verify HUD banner appears and button switches to "Exit Flight"
+    await expect(page.getByRole('button', { name: /exit flight/i })).toBeVisible();
+    await expect(page.getByText(/reconnaissance flight active/i)).toBeVisible();
+
+    // Capture in-flight reconnaissance HUD screenshot
+    await page.waitForTimeout(1000);
+    await page.screenshot({ path: 'e2e-screenshots/02-flythrough-active-hud.png', fullPage: true });
+
+    // Test exiting flight via Escape key
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('button', { name: /flythrough/i })).toBeVisible();
+    await expect(page.getByText(/reconnaissance flight active/i)).not.toBeVisible();
+
+    // Capture post-flight restored state screenshot
+    await page.screenshot({ path: 'e2e-screenshots/03-flythrough-exited.png', fullPage: true });
   });
 
   test('Relative DSM results page displays relative units, warnings, N/A metrics, and unavailable DSM', async ({
@@ -69,6 +93,10 @@ test.describe('Results Screen & 3D Terrain Viewer', () => {
 
     // Check DSM unavailable notice
     await expect(page.getByText(/dsm geotiff unavailable/i)).toBeVisible();
+
+    // Capture screenshot of Relative DSM
+    await page.waitForTimeout(600);
+    await page.screenshot({ path: 'e2e-screenshots/04-relative-dsm.png', fullPage: true });
   });
 
   test('Mobile viewport layout renders without horizontal overflow and without inner scrollbar', async ({ page }) => {
@@ -93,6 +121,10 @@ test.describe('Results Screen & 3D Terrain Viewer', () => {
       return style.overflowY === 'auto' || style.overflowY === 'scroll';
     });
     expect(hasInnerScrollbar).toBe(false);
+
+    // Capture screenshot of mobile layout
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: 'e2e-screenshots/05-mobile-results.png', fullPage: true });
   });
 
   test('Desktop viewport (1440px) renders full available workspace layout', async ({
@@ -117,5 +149,9 @@ test.describe('Results Screen & 3D Terrain Viewer', () => {
       return document.documentElement.scrollWidth > document.documentElement.clientWidth;
     });
     expect(overflow).toBe(false);
+
+    // Capture screenshot of desktop 1440px layout
+    await page.waitForTimeout(500);
+    await page.screenshot({ path: 'e2e-screenshots/06-desktop-1440px.png', fullPage: true });
   });
 });

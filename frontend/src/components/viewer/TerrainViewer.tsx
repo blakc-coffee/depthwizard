@@ -24,6 +24,17 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [viewerError, setViewerError] = useState<string | null>(null);
   const [exaggeration, setExaggeration] = useState<number>(2.2);
+  const [isFlying, setIsFlying] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && managerRef.current?.getIsFlying()) {
+        managerRef.current.stopFlythrough();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -37,6 +48,12 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
     try {
       manager = new TerrainSceneManager(containerRef.current);
       managerRef.current = manager;
+
+      manager.onFlightStateChange = (flying: boolean) => {
+        if (isSubscribed) {
+          setIsFlying(flying);
+        }
+      };
 
       manager
         .loadTerrain(
@@ -87,6 +104,10 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
     managerRef.current?.resetView();
   };
 
+  const handleToggleFlythrough = () => {
+    managerRef.current?.toggleFlythrough();
+  };
+
   const handleExaggerationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
     setExaggeration(val);
@@ -121,18 +142,56 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleResetView}
-          aria-label="Reset View"
-          className="text-xs text-[#36394a] hover:bg-white font-medium px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] bg-white transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] shadow-2xs"
-        >
-          Reset View
-        </button>
+        <div className="flex items-center space-x-2">
+          {/* 3D Reconnaissance Flythrough Button */}
+          <button
+            type="button"
+            onClick={handleToggleFlythrough}
+            aria-label={isFlying ? 'Exit Flight' : 'Flythrough'}
+            className={`text-xs font-medium px-3.5 py-1.5 rounded-[8px] border transition-all flex items-center space-x-1.5 focus:outline-none focus:ring-2 focus:ring-[#5e4cff] shadow-2xs ${
+              isFlying
+                ? 'bg-[#5e4cff] text-white border-[#5e4cff] shadow-sm'
+                : 'bg-white hover:bg-[#f6f8fa] text-[#36394a] border-[#cdd2d9]'
+            }`}
+          >
+            {isFlying ? (
+              <>
+                <span className="w-2 h-2 rounded-full bg-emerald-300 animate-ping" />
+                <span>Exit Flight</span>
+              </>
+            ) : (
+              <>
+                <svg className="w-3.5 h-3.5 text-[#5e4cff]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+                <span>Flythrough</span>
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleResetView}
+            aria-label="Reset View"
+            className="text-xs text-[#36394a] hover:bg-[#f6f8fa] font-medium px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] bg-white transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] shadow-2xs"
+          >
+            Reset View
+          </button>
+        </div>
       </div>
 
       {/* 3D WebGL Canvas Container: Clean soft gray exhibition studio */}
       <div className="flex-1 w-full relative bg-[#e2e6eb] rounded-[12px] overflow-hidden min-h-[360px] sm:min-h-[440px] border border-[#cdd2d9]/80 shadow-inner">
+        {/* Flythrough HUD Banner */}
+        {isFlying && (
+          <div className="absolute top-3 left-1/2 transform -translate-x-1/2 z-30 bg-[#1e2028]/85 backdrop-blur-xs text-white px-4 py-1.5 rounded-full border border-white/20 shadow-lg flex items-center space-x-2.5 pointer-events-none animate-in fade-in duration-200">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+            <span className="text-xs font-medium tracking-wide">
+              Reconnaissance Flight Active · Click canvas or press <kbd className="font-mono text-[10px] bg-white/20 px-1 py-0.5 rounded">Esc</kbd> to exit
+            </span>
+          </div>
+        )}
+
         {loading && (
           <div className="absolute inset-0 z-20 bg-[#e2e6eb]/90 flex items-center justify-center space-x-3 text-sm text-[#36394a] font-medium">
             <svg
@@ -182,7 +241,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
 
       {/* Caption under canvas */}
       <p className="text-[11px] text-[#818898] text-center my-2.5">
-        Drag to orbit · Scroll to zoom · Use Relief slider to adjust peak heights
+        Drag to orbit · Scroll to zoom · Flythrough for drone reconnaissance · Relief adjusts peak heights
       </p>
 
       {/* Bottom Segmented Overlay Pills matching image_3.png */}

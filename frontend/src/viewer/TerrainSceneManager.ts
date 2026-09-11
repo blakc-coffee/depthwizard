@@ -22,6 +22,17 @@ export class TerrainSceneManager {
   private initialCameraPosition = new THREE.Vector3(0, 7.5, 11);
   private initialTargetPosition = new THREE.Vector3(0, 0, 0);
 
+  // 3D Reconnaissance Flythrough state
+  private isFlying: boolean = false;
+  private flightProgress: number = 0;
+  private flightClock: THREE.Clock = new THREE.Clock();
+  private flightCurve: THREE.CatmullRomCurve3 | null = null;
+  private flightSpeed: number = 0.045; // ~22s per complete reconnaissance loop
+  private lookAheadOffset: number = 0.05;
+  private currentLookTarget: THREE.Vector3 = new THREE.Vector3(0, 0, 0);
+
+  public onFlightStateChange?: (isFlying: boolean) => void;
+
   constructor(container: HTMLElement) {
     this.container = container;
 
@@ -51,6 +62,10 @@ export class TerrainSceneManager {
     this.controls.maxPolarAngle = Math.PI / 2 - 0.02; // allows viewing pedestal side walls
     this.controls.target.copy(this.initialTargetPosition);
 
+    // Stop flythrough on direct user interaction with canvas
+    this.renderer.domElement.addEventListener('pointerdown', this.handleUserInteraction);
+    this.renderer.domElement.addEventListener('wheel', this.handleUserInteraction, { passive: true });
+
     // Lights
     this.setupLighting();
 
@@ -72,7 +87,14 @@ export class TerrainSceneManager {
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.width = 2048;
     sunLight.shadow.mapSize.height = 2048;
-    sunLight.shadow.bias = -0.0005;
+    sunLight.shadow.bias = -0.0003;
+    // Fit shadow camera tightly around terrain diorama for sharp contact shadows
+    sunLight.shadow.camera.near = 1;
+    sunLight.shadow.camera.far = 65;
+    sunLight.shadow.camera.left = -9;
+    sunLight.shadow.camera.right = 9;
+    sunLight.shadow.camera.top = 9;
+    sunLight.shadow.camera.bottom = -9;
     this.scene.add(sunLight);
 
     // Cool fill light from opposite side for natural landscape illumination
@@ -105,6 +127,9 @@ export class TerrainSceneManager {
     this.currentTexture = buildResult.texture;
 
     this.scene.add(this.currentMesh);
+
+    // Build 3D reconnaissance flight curve fitted to terrain dimensions
+    this.buildFlightPath(buildResult.width, buildResult.height);
 
     // Texture loader for overlays
     const textureLoader = new THREE.TextureLoader();
@@ -205,7 +230,73 @@ export class TerrainSceneManager {
     geom.computeVertexNormals();
   }
 
+  private buildFlightPath(imgWidth: number, imgHeight: number): void {
+    const hw = 5.0; // half-width of 10-unit mesh
+    const hh = ((imgHeight || 256) / (imgWidth || 256)) * hw; // half-depth
+
+    // Strategic reconnaissance waypoints hovering over and through the terrain:
+    // 0. South high approach: overview of entire terrain block
+    // 1. South-West banking descent: sweeps toward side cliffs
+    // 2. Center low-altitude skimming pass: clears building roofs and peaks at close range
+    // 3. East flank low sweep: close inspection of structures
+    // 4. East cliff banking climb: ascending turn showcasing pedestal side walls
+    // 5. North high overlook: panoramic view from opposite angle
+    // 6. West descending ridge turn: completing the reconnaissance loop
+    const waypoints = [
+      new THREE.Vector3(0, 5.8, hh * 1.35),
+      new THREE.Vector3(-hw * 0.75, 3.2, hh * 0.6),
+      new THREE.Vector3(-hw * 0.25, 2.0, 0.1),
+      new THREE.Vector3(hw * 0.65, 2.5, -hh * 0.4),
+      new THREE.Vector3(hw * 0.9, 4.2, 0),
+      new THREE.Vector3(hw * 0.2, 5.5, -hh * 1.25),
+      new THREE.Vector3(-hw * 0.85, 4.0, -hh * 0.3),
+    ];
+
+    this.flightCurve = new THREE.CatmullRomCurve3(waypoints, true, 'centripetal');
+    this.flightProgress = 0;
+  }
+
+  private handleUserInteraction = () => {
+    if (this.isFlying) {
+      this.stopFlythrough();
+    }
+  };
+
+  public startFlythrough(): void {
+    if (!this.flightCurve) {
+      this.buildFlightPath(256, 256);
+    }
+    this.isFlying = true;
+    this.controls.enabled = false;
+    this.flightClock.start();
+    this.onFlightStateChange?.(true);
+  }
+
+  public stopFlythrough(): void {
+    if (!this.isFlying) return;
+    this.isFlying = false;
+    this.controls.enabled = true;
+    this.controls.target.copy(this.currentLookTarget);
+    this.controls.update();
+    this.onFlightStateChange?.(false);
+  }
+
+  public toggleFlythrough(): boolean {
+    if (this.isFlying) {
+      this.stopFlythrough();
+      return false;
+    } else {
+      this.startFlythrough();
+      return true;
+    }
+  }
+
+  public getIsFlying(): boolean {
+    return this.isFlying;
+  }
+
   public resetView(): void {
+    this.stopFlythrough();
     this.camera.position.copy(this.initialCameraPosition);
     this.controls.target.copy(this.initialTargetPosition);
     this.controls.update();
@@ -213,7 +304,33 @@ export class TerrainSceneManager {
 
   private animate = () => {
     this.animationFrameId = requestAnimationFrame(this.animate);
-    this.controls.update();
+
+    if (this.isFlying && this.flightCurve) {
+      const delta = Math.min(this.flightClock.getDelta(), 0.1);
+      this.flightProgress = (this.flightProgress + delta * this.flightSpeed) % 1.0;
+
+      // Position along 3D reconnaissance flight path
+      const camPos = this.flightCurve.getPointAt(this.flightProgress);
+      this.camera.position.copy(camPos);
+
+      // Look-ahead target along flight path
+      const lookProgress = (this.flightProgress + this.lookAheadOffset) % 1.0;
+      const forwardPoint = this.flightCurve.getPointAt(lookProgress);
+
+      // Blend forward trajectory with terrain center (0, 0.35, 0) for natural UAV tilt
+      const targetLook = new THREE.Vector3()
+        .copy(forwardPoint)
+        .multiplyScalar(0.7)
+        .add(new THREE.Vector3(0, 0.35, 0).multiplyScalar(0.3));
+
+      this.currentLookTarget.lerp(targetLook, 0.1);
+      this.camera.lookAt(this.currentLookTarget);
+
+      this.controls.target.copy(this.currentLookTarget);
+    } else {
+      this.controls.update();
+    }
+
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -242,12 +359,19 @@ export class TerrainSceneManager {
   }
 
   public dispose(): void {
+    this.stopFlythrough();
+
     if (this.animationFrameId !== null) {
       cancelAnimationFrame(this.animationFrameId);
     }
 
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
+    }
+
+    if (this.renderer && this.renderer.domElement) {
+      this.renderer.domElement.removeEventListener('pointerdown', this.handleUserInteraction);
+      this.renderer.domElement.removeEventListener('wheel', this.handleUserInteraction);
     }
 
     this.clearCurrentMesh();

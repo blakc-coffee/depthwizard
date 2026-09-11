@@ -13,9 +13,16 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const isMockAuth = import.meta.env.VITE_USE_MOCK_API === 'true';
-
 const MOCK_STORAGE_KEY = 'depthwizard_mock_session';
+
+function checkIsMockAuth(): boolean {
+  if (import.meta.env.VITE_USE_MOCK_API === 'true') return true;
+  try {
+    return typeof window !== 'undefined' && localStorage.getItem(MOCK_STORAGE_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
 
 function createMockSession(email: string): Session {
   const mockUser: User = {
@@ -49,7 +56,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let mounted = true;
 
     async function initAuth() {
-      if (isMockAuth) {
+      if (checkIsMockAuth()) {
         const savedMock = localStorage.getItem(MOCK_STORAGE_KEY);
         if (savedMock) {
           try {
@@ -104,7 +111,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   }, []);
 
   const signInWithPassword = async (email: string, password: string) => {
-    if (isMockAuth) {
+    if (checkIsMockAuth()) {
       if (!email || !password) {
         return { error: new Error('Please enter email and password.') };
       }
@@ -136,7 +143,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signUp = async (email: string, password: string) => {
-    if (isMockAuth) {
+    if (checkIsMockAuth()) {
       const mockSession = createMockSession(email);
       setSession(mockSession);
       setUser(mockSession.user);
