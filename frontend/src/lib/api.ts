@@ -102,15 +102,18 @@ async function handleResponse<T>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
-export async function createJob(file: File): Promise<CreateJobResponse> {
+export async function createJob(file: File, secondaryFile?: File | null): Promise<CreateJobResponse> {
   if (isMockApi) {
-    return mockCreateJob(file);
+    return mockCreateJob(file, secondaryFile);
   }
 
   try {
     const authHeaders = await getAuthHeader();
     const formData = new FormData();
     formData.append('file', file);
+    if (secondaryFile) {
+      formData.append('secondary_file', secondaryFile);
+    }
 
     const response = await fetch(buildApiUrl('/api/v1/jobs'), {
       method: 'POST',

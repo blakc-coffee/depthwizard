@@ -27,10 +27,15 @@ function getFileFormatBadge(filename: string): { label: string; isGeo: boolean }
 
 export const UploadForm = () => {
   const navigate = useNavigate();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const primaryInputRef = useRef<HTMLInputElement>(null);
+  const secondaryInputRef = useRef<HTMLInputElement>(null);
 
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
+  const [selectedPrimaryFile, setSelectedPrimaryFile] = useState<File | null>(null);
+  const [selectedSecondaryFile, setSelectedSecondaryFile] = useState<File | null>(null);
+
+  const [isDragOverPrimary, setIsDragOverPrimary] = useState(false);
+  const [isDragOverSecondary, setIsDragOverSecondary] = useState(false);
+
   const [submitting, setSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -42,59 +47,54 @@ export const UploadForm = () => {
     return null;
   };
 
-  const handleFileSelect = (file: File) => {
+  const handlePrimarySelect = (file: File) => {
     setErrorMessage(null);
     const err = validateFile(file);
     if (err) {
-      setErrorMessage(err);
-      setSelectedFile(null);
+      setErrorMessage(`Primary Image: ${err}`);
+      setSelectedPrimaryFile(null);
       return;
     }
-    setSelectedFile(file);
+    setSelectedPrimaryFile(file);
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSecondarySelect = (file: File) => {
+    setErrorMessage(null);
+    const err = validateFile(file);
+    if (err) {
+      setErrorMessage(`Secondary Image: ${err}`);
+      setSelectedSecondaryFile(null);
+      return;
+    }
+    setSelectedSecondaryFile(file);
+  };
+
+  const handlePrimaryInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (files && files.length > 0) {
-      handleFileSelect(files[0]);
+      handlePrimarySelect(files[0]);
     }
   };
 
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-  };
-
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragOver(false);
-
-    const files = e.dataTransfer.files;
+  const handleSecondaryInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
     if (files && files.length > 0) {
-      handleFileSelect(files[0]);
+      handleSecondarySelect(files[0]);
     }
   };
 
-  const handleKeyDownDropzone = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      fileInputRef.current?.click();
-    }
-  };
-
-  const handleRemoveFile = () => {
-    setSelectedFile(null);
+  const handleRemovePrimaryFile = () => {
+    setSelectedPrimaryFile(null);
     setErrorMessage(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+    if (primaryInputRef.current) {
+      primaryInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveSecondaryFile = () => {
+    setSelectedSecondaryFile(null);
+    if (secondaryInputRef.current) {
+      secondaryInputRef.current.value = '';
     }
   };
 
@@ -102,21 +102,29 @@ export const UploadForm = () => {
     if (e) e.preventDefault();
     setErrorMessage(null);
 
-    if (!selectedFile) {
-      setErrorMessage('Please select a satellite or aerial image file before processing.');
+    if (!selectedPrimaryFile) {
+      setErrorMessage('Please select a primary satellite or aerial baseline image before processing.');
       return;
     }
 
-    const validationErr = validateFile(selectedFile);
+    const validationErr = validateFile(selectedPrimaryFile);
     if (validationErr) {
       setErrorMessage(validationErr);
       return;
     }
 
+    if (selectedSecondaryFile) {
+      const secErr = validateFile(selectedSecondaryFile);
+      if (secErr) {
+        setErrorMessage(secErr);
+        return;
+      }
+    }
+
     setSubmitting(true);
 
     try {
-      const response = await createJob(selectedFile);
+      const response = await createJob(selectedPrimaryFile, selectedSecondaryFile);
       if (response && response.job_id) {
         navigate(`/processing/${encodeURIComponent(response.job_id)}`);
       } else {
@@ -137,7 +145,7 @@ export const UploadForm = () => {
           Input Satellite / Aerial Imagery
         </h1>
         <p className="text-sm text-[#666d80]">
-          Upload a supported terrain dataset. DepthWizard will validate it before processing.
+          Upload baseline and post-event imagery datasets for 3D elevation estimation and temporal disaster change detection.
         </p>
       </div>
 
@@ -170,128 +178,309 @@ export const UploadForm = () => {
 
       {/* Two Column Input Workspace */}
       <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,360px)] gap-6 items-start w-full">
+        {/* Hidden inputs */}
         <input
-          ref={fileInputRef}
+          ref={primaryInputRef}
           id="file-upload"
           name="file-upload"
           type="file"
           accept=".png,.jpg,.jpeg,.tif,.tiff,image/png,image/jpeg,image/tiff"
-          onChange={handleInputChange}
+          onChange={handlePrimaryInputChange}
+          disabled={submitting}
+          className="sr-only"
+        />
+        <input
+          ref={secondaryInputRef}
+          id="file-upload-secondary"
+          name="file-upload-secondary"
+          type="file"
+          accept=".png,.jpg,.jpeg,.tif,.tiff,image/png,image/jpeg,image/tiff"
+          onChange={handleSecondaryInputChange}
           disabled={submitting}
           className="sr-only"
         />
 
-        {/* Left Column: Terrain Dataset Workspace */}
-        <div className="bg-[#f6f8fa] border border-[#cdd2d9] rounded-[12px] p-6 space-y-4 w-full">
-          <div>
-            <h2 className="text-lg font-semibold text-[#36394a] font-heading mb-0.5">
-              Terrain dataset
-            </h2>
-            <p className="text-xs text-[#818898]">
-              Accepted: GeoTIFF, DEM, CSV, PNG, JPEG
-            </p>
+        {/* Left Column: Dual Imagery Workspaces */}
+        <div className="bg-[#f6f8fa] border border-[#cdd2d9] rounded-[12px] p-5 sm:p-6 space-y-5 w-full">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#cdd2d9]/70 pb-3">
+            <div>
+              <h2 className="text-lg font-semibold text-[#36394a] font-heading mb-0.5">
+                Imagery Inputs
+              </h2>
+              <p className="text-xs text-[#818898]">
+                Accepted: GeoTIFF, DEM, PNG, JPEG (Up to 100MB per file)
+              </p>
+            </div>
+            {selectedSecondaryFile && (
+              <span className="text-xs font-semibold text-[#5e4cff] bg-[#dfdbff] px-2.5 py-1 rounded-full border border-[#c8ccf3]">
+                Dual Comparison Mode Active
+              </span>
+            )}
           </div>
 
-          {!selectedFile ? (
-            <div
-              tabIndex={0}
-              role="button"
-              aria-label="Upload satellite or aerial image file"
-              onKeyDown={handleKeyDownDropzone}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className={`border border-[#cdd2d9] rounded-[12px] p-12 text-center cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] bg-white ${
-                isDragOver ? 'border-[#5e4cff] bg-[#dfdbff]/20' : 'hover:border-[#5e4cff]'
-              }`}
-            >
-              <h3 className="text-base font-semibold text-[#36394a] font-heading mb-1">
-                Drop your file here
-              </h3>
-              <p className="text-xs text-[#818898] mb-6">
-                Drag and drop your image here, or choose a file from your computer
-              </p>
-              <button
-                type="button"
-                className="bg-[#5e4cff] hover:bg-[#5e4cff]/90 text-white text-xs font-medium px-6 py-2.5 rounded-[8px] shadow-xs transition-colors pointer-events-none"
-              >
-                Choose terrain file
-              </button>
-            </div>
-          ) : (
-            <div className="bg-white border border-[#cdd2d9] rounded-[12px] p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center space-x-4">
-                <div className="w-12 h-12 rounded-lg bg-[#f6f8fa] border border-[#cdd2d9] text-[#5e4cff] flex items-center justify-center flex-shrink-0">
-                  <svg
-                    className="w-6 h-6"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                    />
-                  </svg>
-                </div>
-                <div>
+          {/* Dual Dropzones: Grid layout */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            {/* Input 1: Primary (Baseline) */}
+            <div className="bg-white border border-[#cdd2d9] rounded-[12px] p-4 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center space-x-2">
-                    <span className="text-sm font-semibold text-[#36394a] truncate max-w-[200px] sm:max-w-xs">
-                      {selectedFile.name}
+                    <span className="w-2 h-2 rounded-full bg-[#5e4cff]" />
+                    <span className="text-xs font-semibold text-[#36394a] uppercase tracking-wide">
+                      Input 1 · Baseline
                     </span>
-                    {(() => {
-                      const badge = getFileFormatBadge(selectedFile.name);
-                      return (
-                        <span
-                          className={`text-xs px-2 py-0.5 rounded font-mono font-medium ${
-                            badge.isGeo
-                              ? 'bg-[#dfdbff] text-[#5e4cff] border border-[#c8ccf3]'
-                              : 'bg-[#f6f8fa] text-[#666d80] border border-[#cdd2d9]'
-                          }`}
-                        >
-                          {badge.label}
-                        </span>
-                      );
-                    })()}
                   </div>
-                  <span className="text-xs font-mono text-[#818898]">
-                    Size: {formatFileSize(selectedFile.size)}
+                  <span className="text-[11px] font-semibold text-[#5e4cff] bg-[#dfdbff] px-2 py-0.5 rounded-full border border-[#c8ccf3]">
+                    Required
                   </span>
                 </div>
+                <p className="text-xs text-[#818898] mb-3">
+                  Pre-disaster aerial or satellite capture for baseline topography.
+                </p>
               </div>
 
-              <div className="flex items-center space-x-3 self-end sm:self-center">
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={submitting}
-                  className="text-xs text-[#36394a] hover:text-[#5e4cff] font-medium px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] hover:bg-[#f6f8fa] transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
+              {!selectedPrimaryFile ? (
+                <div
+                  tabIndex={0}
+                  role="button"
+                  aria-label="Upload satellite or aerial image file"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      primaryInputRef.current?.click();
+                    }
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDragOverPrimary(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDragOverPrimary(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDragOverPrimary(false);
+                    const files = e.dataTransfer.files;
+                    if (files && files.length > 0) handlePrimarySelect(files[0]);
+                  }}
+                  onClick={() => primaryInputRef.current?.click()}
+                  className={`border border-dashed border-[#cdd2d9] rounded-[10px] p-6 text-center cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] bg-[#fdfdfd] flex flex-col items-center justify-center min-h-[190px] ${
+                    isDragOverPrimary ? 'border-[#5e4cff] bg-[#dfdbff]/20' : 'hover:border-[#5e4cff] hover:bg-[#f6f8fa]'
+                  }`}
                 >
-                  Change File
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRemoveFile}
-                  disabled={submitting}
-                  className="text-xs text-red-600 hover:text-red-800 font-medium px-3 py-1.5 rounded-[8px] border border-red-200 hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500"
-                >
-                  Remove File
-                </button>
-              </div>
+                  <div className="w-10 h-10 rounded-full bg-[#f6f8fa] border border-[#cdd2d9] text-[#5e4cff] flex items-center justify-center mb-2.5">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-sm font-semibold text-[#36394a] font-heading mb-0.5">
+                    Drop your image here
+                  </h3>
+                  <p className="text-[11px] text-[#818898] mb-3">
+                    Drag and drop your image here, or choose a file
+                  </p>
+                  <button
+                    type="button"
+                    className="bg-[#5e4cff] hover:bg-[#5e4cff]/90 text-white text-xs font-medium px-4 py-1.5 rounded-[8px] shadow-2xs transition-colors pointer-events-none"
+                  >
+                    Choose baseline file
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-[#f6f8fa] border border-[#cdd2d9] rounded-[10px] p-3.5 flex flex-col justify-between gap-3 min-h-[190px]">
+                  <div className="flex items-start space-x-3">
+                    <div className="w-10 h-10 rounded-lg bg-white border border-[#cdd2d9] text-[#5e4cff] flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-[#36394a] truncate" title={selectedPrimaryFile.name}>
+                        {selectedPrimaryFile.name}
+                      </p>
+                      <div className="flex items-center space-x-1.5 mt-1">
+                        {(() => {
+                          const badge = getFileFormatBadge(selectedPrimaryFile.name);
+                          return (
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${
+                                badge.isGeo
+                                  ? 'bg-[#dfdbff] text-[#5e4cff] border border-[#c8ccf3]'
+                                  : 'bg-white text-[#666d80] border border-[#cdd2d9]'
+                              }`}
+                            >
+                              {badge.label}
+                            </span>
+                          );
+                        })()}
+                        <span className="text-[11px] font-mono text-[#818898]">
+                          Size: {formatFileSize(selectedPrimaryFile.size)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 pt-2 border-t border-[#cdd2d9]/60">
+                    <button
+                      type="button"
+                      onClick={() => primaryInputRef.current?.click()}
+                      disabled={submitting}
+                      className="flex-1 text-xs text-[#36394a] hover:text-[#5e4cff] font-medium py-1.5 rounded-[8px] border border-[#cdd2d9] bg-white hover:bg-[#f6f8fa] transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
+                    >
+                      Change
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRemovePrimaryFile}
+                      disabled={submitting}
+                      className="flex-1 text-xs text-red-600 hover:text-red-800 font-medium py-1.5 rounded-[8px] border border-red-200 bg-white hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500"
+                    >
+                      Remove File
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
-          )}
 
-          <div className="bg-white border border-[#cdd2d9] rounded-[12px] p-4 text-xs text-[#666d80] space-y-1">
-            <span className="font-semibold text-[#36394a] block mb-0.5 font-heading">Format Specifications:</span>
+            {/* Input 2: Secondary (Post-Disaster / Event) */}
+            <div className="bg-white border border-[#cdd2d9] rounded-[12px] p-4 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center space-x-2">
+                    <span className="w-2 h-2 rounded-full bg-amber-500" />
+                    <span className="text-xs font-semibold text-[#36394a] uppercase tracking-wide">
+                      Input 2 · Event / Post
+                    </span>
+                  </div>
+                  <span className="text-[11px] font-medium text-[#666d80] bg-[#e2e4e9] px-2 py-0.5 rounded-full border border-[#cdd2d9]">
+                    Optional
+                  </span>
+                </div>
+                <p className="text-xs text-[#818898] mb-3">
+                  Post-disaster capture of same location for difference & damage heatmap.
+                </p>
+              </div>
+
+              {!selectedSecondaryFile ? (
+                <div
+                  tabIndex={0}
+                  role="button"
+                  aria-label="Upload secondary event image file"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      secondaryInputRef.current?.click();
+                    }
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDragOverSecondary(true);
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDragOverSecondary(false);
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setIsDragOverSecondary(false);
+                    const files = e.dataTransfer.files;
+                    if (files && files.length > 0) handleSecondarySelect(files[0]);
+                  }}
+                  onClick={() => secondaryInputRef.current?.click()}
+                  className={`border border-dashed border-[#cdd2d9] rounded-[10px] p-6 text-center cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] bg-[#fdfdfd] flex flex-col items-center justify-center min-h-[190px] ${
+                    isDragOverSecondary ? 'border-amber-500 bg-amber-50/30' : 'hover:border-amber-400 hover:bg-[#f6f8fa]'
+                  }`}
+                >
+                  <div className="w-10 h-10 rounded-full bg-[#f6f8fa] border border-[#cdd2d9] text-amber-500 flex items-center justify-center mb-2.5">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <h3 className="text-sm font-semibold text-[#36394a] font-heading mb-0.5">
+                    Drop event image (optional)
+                  </h3>
+                  <p className="text-[11px] text-[#818898] mb-3">
+                    Drag and drop post-disaster image, or choose a file
+                  </p>
+                  <button
+                    type="button"
+                    className="bg-white hover:bg-[#f6f8fa] text-[#36394a] border border-[#cdd2d9] text-xs font-medium px-4 py-1.5 rounded-[8px] shadow-2xs transition-colors pointer-events-none"
+                  >
+                    Choose event file
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-[#f6f8fa] border border-[#cdd2d9] rounded-[10px] p-3.5 flex flex-col justify-between gap-3 min-h-[190px]">
+                  <div className="flex items-start space-x-3">
+                    <div className="w-10 h-10 rounded-lg bg-white border border-[#cdd2d9] text-amber-500 flex items-center justify-center flex-shrink-0 mt-0.5">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-[#36394a] truncate" title={selectedSecondaryFile.name}>
+                        {selectedSecondaryFile.name}
+                      </p>
+                      <div className="flex items-center space-x-1.5 mt-1">
+                        {(() => {
+                          const badge = getFileFormatBadge(selectedSecondaryFile.name);
+                          return (
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-medium ${
+                                badge.isGeo
+                                  ? 'bg-[#dfdbff] text-[#5e4cff] border border-[#c8ccf3]'
+                                  : 'bg-white text-[#666d80] border border-[#cdd2d9]'
+                              }`}
+                            >
+                              {badge.label}
+                            </span>
+                          );
+                        })()}
+                        <span className="text-[11px] font-mono text-[#818898]">
+                          Size: {formatFileSize(selectedSecondaryFile.size)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 pt-2 border-t border-[#cdd2d9]/60">
+                    <button
+                      type="button"
+                      onClick={() => secondaryInputRef.current?.click()}
+                      disabled={submitting}
+                      className="flex-1 text-xs text-[#36394a] hover:text-[#5e4cff] font-medium py-1.5 rounded-[8px] border border-[#cdd2d9] bg-white hover:bg-[#f6f8fa] transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
+                    >
+                      Change
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRemoveSecondaryFile}
+                      disabled={submitting}
+                      className="flex-1 text-xs text-red-600 hover:text-red-800 font-medium py-1.5 rounded-[8px] border border-red-200 bg-white hover:bg-red-50 transition-colors focus:outline-none focus:ring-2 focus:ring-red-500"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Format specifications note */}
+          <div className="bg-white border border-[#cdd2d9] rounded-[12px] p-4 text-xs text-[#666d80] space-y-1.5">
+            <span className="font-semibold text-[#36394a] block mb-1 font-heading">Format Specifications:</span>
             <p>
-              • <strong>PNG / JPG:</strong> Standard imagery for relative depth estimation.
+              • <strong>Primary Image (Baseline):</strong> Ground elevation reference for 3D reconstruction and calibration ($m$).
             </p>
             <p>
-              • <strong>TIFF / GeoTIFF:</strong> Geo-referenced spatial rasters evaluate backend reference elevation anchors for absolute DSM calibration ($m$).
+              • <strong>Secondary Image (Event - Optional):</strong> Post-disaster comparison layer enabling 3-way toggle and difference heatmap generation.
             </p>
           </div>
         </div>
@@ -305,11 +494,13 @@ export const UploadForm = () => {
           <div className="space-y-4 text-xs">
             <div className="flex items-center">
               <span className="font-mono text-[#5e4cff] font-semibold mr-3">01</span>
-              <span className="font-medium text-[#36394a]">File format supported</span>
+              <span className="font-medium text-[#36394a]">Primary baseline verified</span>
             </div>
             <div className="flex items-center">
               <span className="font-mono text-[#5e4cff] font-semibold mr-3">02</span>
-              <span className="font-medium text-[#36394a]">Coordinate system detected</span>
+              <span className="font-medium text-[#36394a]">
+                {selectedSecondaryFile ? 'Dual temporal alignment detected' : 'Single capture mode (no event)'}
+              </span>
             </div>
             <div className="flex items-center">
               <span className="font-mono text-[#5e4cff] font-semibold mr-3">03</span>
@@ -317,14 +508,14 @@ export const UploadForm = () => {
             </div>
             <div className="flex items-center">
               <span className="font-mono text-[#5e4cff] font-semibold mr-3">04</span>
-              <span className="font-medium text-[#36394a]">No critical gaps</span>
+              <span className="font-medium text-[#36394a]">No critical raster gaps</span>
             </div>
           </div>
 
           <div className="pt-4 border-t border-[#cdd2d9]">
             <button
               type="submit"
-              disabled={!selectedFile || submitting}
+              disabled={!selectedPrimaryFile || submitting}
               className="w-full bg-[#1a1b25] hover:bg-[#272835] disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold py-3 px-4 rounded-[8px] transition-colors flex items-center justify-center space-x-2 focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
             >
               {submitting && (
@@ -350,7 +541,7 @@ export const UploadForm = () => {
                   />
                 </svg>
               )}
-              <span>Process Image</span>
+              <span>{selectedSecondaryFile ? 'Process Both Images' : 'Process Image'}</span>
             </button>
           </div>
         </div>

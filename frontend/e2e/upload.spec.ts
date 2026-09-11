@@ -108,4 +108,39 @@ test.describe('Input / Upload Screen', () => {
     await dropzone.focus();
     await expect(dropzone).toBeFocused();
   });
+
+  test('dual imagery inputs: user can select both primary baseline and optional secondary event files', async ({
+    page,
+  }) => {
+    await page.goto('/app');
+
+    // Input 1: Primary baseline file
+    const primaryBuffer = Buffer.from('baseline image content');
+    await page.setInputFiles('#file-upload', {
+      name: 'pre_disaster_base.tif',
+      mimeType: 'image/tiff',
+      buffer: primaryBuffer,
+    });
+
+    await expect(page.getByText('pre_disaster_base.tif')).toBeVisible();
+    await expect(page.getByText('Input 1 · Baseline')).toBeVisible();
+
+    // Input 2: Secondary event file (optional)
+    const secondaryBuffer = Buffer.from('event image content');
+    await page.setInputFiles('#file-upload-secondary', {
+      name: 'post_disaster_event.png',
+      mimeType: 'image/png',
+      buffer: secondaryBuffer,
+    });
+
+    await expect(page.getByText('post_disaster_event.png')).toBeVisible();
+    await expect(page.getByText('Dual Comparison Mode Active')).toBeVisible();
+    await expect(page.getByRole('button', { name: /process both images/i })).toBeVisible();
+
+    // Remove secondary file independently
+    await page.getByRole('button', { name: 'Remove', exact: true }).click();
+    await expect(page.getByText('post_disaster_event.png')).not.toBeVisible();
+    await expect(page.getByText('pre_disaster_base.tif')).toBeVisible();
+    await expect(page.getByRole('button', { name: /process image/i })).toBeVisible();
+  });
 });

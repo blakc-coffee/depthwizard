@@ -16,8 +16,8 @@ const mockStateStore = new Map<
   }
 >();
 
-export async function mockCreateJob(file: File): Promise<CreateJobResponse> {
-  if (file.name.toLowerCase().includes('too_large')) {
+export async function mockCreateJob(file: File, secondFile?: File | null): Promise<CreateJobResponse> {
+  if (file.name.toLowerCase().includes('too_large') || secondFile?.name.toLowerCase().includes('too_large')) {
     throw new ApiException(
       KnownErrorCodes.FILE_TOO_LARGE,
       'File exceeds the maximum upload limit.'
@@ -33,6 +33,13 @@ export async function mockCreateJob(file: File): Promise<CreateJobResponse> {
     filename: file.name,
     isGeoTIFF,
   });
+
+  if (typeof window !== 'undefined' && secondFile) {
+    sessionStorage.setItem(`depthwizard_secondary_${jobId}`, JSON.stringify({
+      name: secondFile.name,
+      size: secondFile.size,
+    }));
+  }
 
   return {
     job_id: jobId,
