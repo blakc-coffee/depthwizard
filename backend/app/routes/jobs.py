@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import uuid
 from io import BytesIO
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request, UploadFile
 from PIL import Image
@@ -65,6 +66,18 @@ def _validate_image_content(content: bytes, media_type: str) -> None:
         raise ApiException(ErrorCode.INVALID_IMAGE, "File could not be decoded as a valid image.") from exc
 
 
+def _sanitize_filename(filename: str | None) -> str:
+    """The client-supplied filename is embedded directly in the storage path
+    (inputs/{user_id}/{job_id}/{filename}, PRD §7) — never trust it. `.name`
+    strips any directory components (e.g. "../../etc/passwd" -> "passwd"),
+    but doesn't normalize a bare "." or ".." on its own, so those are caught
+    explicitly."""
+    name = Path(filename or "upload").name
+    if name in ("", ".", ".."):
+        return "upload"
+    return name
+
+
 @router.post("", status_code=202, response_model=CreateJobResponse)
 @limiter.limit("10/hour")
 async def create_job(
@@ -82,7 +95,7 @@ async def create_job(
     media_type = _sniff_media_type(content)
     _validate_image_content(content, media_type)
 
-    filename = file.filename or "upload"
+    filename = _sanitize_filename(file.filename)
     job_id = uuid.uuid4()
     stored_path = storage.input_path(user_id, str(job_id), filename)
 
