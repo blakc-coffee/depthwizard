@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     # Upload limit (PRD §9.5)
     max_upload_mb: int = 50
 
+    # Width x height cap, read from the file header at upload. The worker
+    # decodes inputs at full resolution, so a small but highly compressed
+    # image can still run it out of memory. Not set by the PRD — tune once
+    # worker memory testing says otherwise.
+    max_image_pixels: int = 25_000_000
+
     # Signed URL expiry (PRD §7 — 60 minutes)
     signed_url_expiry_minutes: int = 60
 
