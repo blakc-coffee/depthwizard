@@ -44,7 +44,7 @@ async def create_silt_job(
         raise ApiException(ErrorCode.FILE_TOO_LARGE, f"File exceeds the {settings.max_upload_mb} MB limit.")
 
     media_type = sniff_media_type(content)
-    validate_image_content(content, media_type)
+    validate_image_content(content, media_type, settings.max_image_pixels)
 
     filename = file.filename or "upload"
     job_id = uuid.uuid4()

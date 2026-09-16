@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, UploadFile
+from fastapi import APIRouter, Depends, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user_id
 from app.core.config import get_settings
 from app.core.errors import ApiException, ErrorCode
+from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.schemas.errors import ApiError
 from app.schemas.jobs import (
@@ -27,14 +28,16 @@ from app.schemas.jobs import (
 )
 from app.services import storage
 from app.services.jobs import JobService
-from app.services.upload_validation import sniff_media_type, validate_image_content
+from app.services.upload_validation import sanitize_filename, sniff_media_type, validate_image_content
 from app.tasks.process_image import process_image
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
 
 @router.post("", status_code=202, response_model=CreateJobResponse)
+@limiter.limit("10/hour")
 async def create_job(
+    request: Request,
     file: UploadFile,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -46,9 +49,9 @@ async def create_job(
         raise ApiException(ErrorCode.FILE_TOO_LARGE, f"File exceeds the {settings.max_upload_mb} MB limit.")
 
     media_type = sniff_media_type(content)
-    validate_image_content(content, media_type)
+    validate_image_content(content, media_type, settings.max_image_pixels)
 
-    filename = file.filename or "upload"
+    filename = sanitize_filename(file.filename)
     job_id = uuid.uuid4()
     stored_path = storage.input_path(user_id, str(job_id), filename)
 
@@ -75,7 +78,9 @@ async def create_job(
 
 
 @router.get("/{job_id}", response_model=JobStatusResponse)
+@limiter.limit("60/minute")
 def get_job(
+    request: Request,
     job_id: uuid.UUID,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -88,7 +93,9 @@ def get_job(
 
 
 @router.get("/{job_id}/result", response_model=JobResult)
+@limiter.limit("30/minute")
 def get_job_result(
+    request: Request,
     job_id: uuid.UUID,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -118,7 +125,9 @@ def get_job_result(
 
 
 @router.get("", response_model=JobListResponse)
+@limiter.limit("30/minute")
 def list_jobs(
+    request: Request,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> JobListResponse:
@@ -139,7 +148,9 @@ def list_jobs(
 
 
 @router.delete("/{job_id}", status_code=204)
+@limiter.limit("20/minute")
 def delete_job(
+    request: Request,
     job_id: uuid.UUID,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),

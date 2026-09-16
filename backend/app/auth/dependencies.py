@@ -19,33 +19,64 @@ the point of asymmetric verification.
 
 from __future__ import annotations
 
+import threading
+import time
 from functools import lru_cache
 
 import jwt
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jwt import PyJWKClient
+from jwt import PyJWK, PyJWKClient
 
 from app.core.config import get_settings
 from app.core.errors import ApiException, ErrorCode
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
+# PyJWKClient refetches the JWKS whenever a token names an unknown `kid`, so
+# any forged token could force an outbound call to Supabase. Allow that
+# refetch at most once per cooldown; a real key rotation is still picked up.
+_UNKNOWN_KID_REFRESH_COOLDOWN_SECONDS = 60
+_last_unknown_kid_refresh = float("-inf")
+_refresh_lock = threading.Lock()
+
 
 @lru_cache
 def _get_jwks_client() -> PyJWKClient:
     jwks_url = f"{get_settings().supabase_url.rstrip('/')}/auth/v1/.well-known/jwks.json"
-    return PyJWKClient(jwks_url, cache_keys=True)
+    return PyJWKClient(jwks_url, timeout=5)
+
+
+def _get_signing_key(token: str) -> PyJWK:
+    global _last_unknown_kid_refresh
+    client = _get_jwks_client()
+    kid = jwt.get_unverified_header(token).get("kid")
+    if not kid:
+        raise jwt.InvalidTokenError("Token has no kid header.")
+
+    key = client.match_kid(client.get_signing_keys(), kid)
+    if key is None:
+        with _refresh_lock:
+            # Another thread may have refreshed while this one waited.
+            key = client.match_kid(client.get_signing_keys(), kid)
+            now = time.monotonic()
+            if key is None and now - _last_unknown_kid_refresh >= _UNKNOWN_KID_REFRESH_COOLDOWN_SECONDS:
+                _last_unknown_kid_refresh = now
+                key = client.match_kid(client.get_signing_keys(refresh=True), kid)
+    if key is None:
+        raise jwt.InvalidTokenError("Unknown signing key.")
+    return key
 
 
 def get_current_user_id(
+    request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
 ) -> str:
     if credentials is None:
         raise ApiException(ErrorCode.AUTH_REQUIRED, "Missing bearer token.")
 
     try:
-        signing_key = _get_jwks_client().get_signing_key_from_jwt(credentials.credentials)
+        signing_key = _get_signing_key(credentials.credentials)
         payload = jwt.decode(
             credentials.credentials,
             signing_key.key,
@@ -59,4 +90,7 @@ def get_current_user_id(
     if not user_id:
         raise ApiException(ErrorCode.INVALID_TOKEN, "Token has no subject claim.")
 
+    # Lets core/rate_limit.py key throttling by user instead of IP —
+    # ownership/isolation itself never depends on this, only rate limiting does.
+    request.state.user_id = user_id
     return user_id
