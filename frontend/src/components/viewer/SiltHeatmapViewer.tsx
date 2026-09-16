@@ -54,7 +54,11 @@ export const SiltHeatmapViewer: React.FC<SiltHeatmapViewerProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const heatmapDataRef = useRef<ImageData | null>(null);
-  const [opacity, setOpacity] = useState<number>(0.75);
+  // Lower than a first instinct of ~0.75: this tint spans the whole photo,
+  // not just the water (no reliable RGB-only water mask — see
+  // DENSE_HEATMAP_CAVEAT), so a heavy default would bury the source image
+  // under one flat color wash instead of reading as a legible blend.
+  const [opacity, setOpacity] = useState<number>(0.4);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [hoverValue, setHoverValue] = useState<number | null>(null);

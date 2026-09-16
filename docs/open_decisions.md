@@ -1043,3 +1043,45 @@ Parallelized the Earth Engine pull (`ThreadPoolExecutor`, `--concurrency 8`, ~7.
 Retrained again after the last 604-row reservoir batch landed (this batch was pulled and processed in this session's continuation) — result came back **byte-identical to 4 decimal places** to the pre-batch run. Verified this isn't a stale-cache artifact: confirmed the new rows (e.g. `GEMS_28.93573_-105.31327`, `GEMS_25.27459_-103.81319`) are genuinely present across all three fresh split files, feature/split files have fresh mtimes, and the training script reads them directly (no intermediate cache). Honest read: this is a real, reproducible finding, not a bug — **the model has hit a real accuracy ceiling that ~600 more rows (7.7% of the dataset) does not move**, consistent with this session's earlier sample-size-scaling finding (non-monotonic/plateaued at small scale, now confirmed at this larger scale too). Don't expect another few-hundred-row pull to move this number; if pursued further, the lever is a different axis (better features, e.g. actual NIR/SWIR bands per the literature-review entry above, not more of the same RGB-only rows).
 
 **Resolves when:** N/A — this is the current production baseline. The NIR/SWIR band gap flagged in the literature-review entry above remains the most promising untried lever.
+
+**Follow-up (2026-09-16) — RGB-only water masking tried for the heatmap overlay, measured unreliable, reverted**
+
+User reported the heatmap overlay wasn't legible: tint painted the whole photo (farmland, roads, everything) the same as any water, not concentrated on the actual river channel. Tried a fix: Otsu-adaptive threshold on a "blueness" index `(B-R)/(B+R+eps)` (RGB-only approximation of the real mNDWI mask `extract_river_silt_multispectral_features.py` already uses with real NIR/SWIR bands).
+
+**Measured, not assumed, before shipping it:** ran the heuristic against all 5 curated real demo images (`silt_demo_best/`). Result — 24-71% of each image flagged as "water":
+
+| Site | "Water" fraction |
+|---|---|
+| GEMS_40.37129_22.16126 | 24.2% |
+| GEMS_52.46882_6.45168 | 70.8% |
+| GEMS_45.2244_19.8419 | 32.4% |
+| Waterbase_FRB2R01001503 | 52.0% |
+| Waterbase_IT10SRD1 | 47.5% |
+
+A real river channel in a crop this size runs ~2-4% (this session's own real mNDWI-based measurement, 2026-09-14 entry). Every one of these is 6-30x too high — the heuristic isn't separating water from land at all, it's roughly bisecting the image on overall color/brightness. Shipping this would have been worse than the honest status quo: a confidently-wrong "water mask" that looks authoritative but paints farmland/forest as river.
+
+**Reverted the masking attempt entirely** (`ml/river_silt_pipeline.py`, `ml/features/texture_utils.py`, `SiltHeatmapViewer.tsx` all back to pre-attempt state). Kept two real, independent fixes made in the same pass:
+1. Default heatmap opacity lowered 0.75 → 0.4 (`SiltHeatmapViewer.tsx`) — since the tint is whole-image, not water-restricted, a heavy default buried the source photo under a flat color wash. Lower default reads as a legible blend instead.
+2. `SiltCrossSectionScene.ts`: `OrbitControls` had no `minDistance`/`maxDistance` — unbounded scroll-to-zoom let the camera clip inside the bank mesh, rendering as a huge, confusing green block filling most of the view (reported by user, reproduced from the described symptom). Clamped to `[4, 16]`.
+
+**Honest conclusion:** a real, water-restricted heatmap needs the NIR/SWIR bands already flagged as the biggest untried lever above — RGB alone cannot reliably separate water from land in these Sentinel-2 true-color crops. Don't re-attempt an RGB-only heuristic water mask without a genuinely new signal; this one was tried and measured, not guessed.
+
+**Resolves when:** if pursued, needs real multispectral bands at inference time (not just training), which is a bigger scope change to the upload flow (would need to accept multi-band GeoTIFF, not just RGB) — not attempted this session.
+
+**Follow-up (2026-09-16) — cross-section sediment was invisible (real bug: opacity:0), plus a normalization-scale mismatch**
+
+User reported the 3D cross-section never showed a visible sediment layer, just a plain blue-gray water wedge. Real bug found in `SiltCrossSectionScene.ts`: the sediment ribbon's `THREE.Mesh` was built with `opacity: 0` (literally invisible) — a leftover placeholder value, not a distribution problem as first suspected.
+
+Also found a real scale mismatch: `SiltCrossSectionViewer.tsx` normalized sediment fill fraction against the heatmap's 900 mg/L (p99) ceiling, tuned for compressing a heavy-tailed color ramp — every realistic non-flood reading (1-50 mg/L) rounds to `intensity < 0.06`, an imperceptible sliver even with opacity fixed. Changed the cross-section's ceiling to 40 mg/L, the same `GAUGE_MAX` `DredgingIndicator`'s gauge already uses (real tercile-derived thresholds) — a "moderate"/"high" reading now visibly reads as silted, consistent with the indicator panel right next to it.
+
+Fixed opacity, retuned the sediment top surface to be a smoothed, mostly-flat layer (small `local` modulation range 0.9-1.1, moving-average-smoothed profile) instead of mirroring the raw 48-point profile's full jaggedness — physically sediment deposits fill/smooth low spots, they don't amplify bed noise. Replaced the floating, disconnected bank boxes (visually gapped from the channel edge, and the cause of an earlier zoom-clip bug) with continuous sloped ground wedges sharing the exact bed-edge point. Added hemisphere + fill lighting and scene fog for a more natural look, per explicit user ask ("more realistic").
+
+**Resolves when:** N/A — shipped. `frontend/src/lib/realSiltDemoFixture.ts`/`realSiltDemoFixture2.ts` (dev-only, gitignored via the root `*.json`/binary conventions — actually these are `.ts`, tracked; regenerate via `tools/run_river_silt_pipeline.py` if the geometry or heatmap logic changes again) still hold the pre-fix cross-section arrays, which render fine under the new code (same data, just correctly visualized now).
+
+**Follow-up (2026-09-16) — cross-section rebuilt as one solid gradient mesh, banks removed**
+
+Further user feedback on the same scene: sediment/water met at a hard color edge, not a gradient; the mesh was hollow/see-through from some angles; remove the green bank geometry entirely.
+
+`buildChannel()` replaces the old two-separate-ribbons approach with one fully closed mesh (front/back walls, top cap, bottom cap, and end caps at both ends — the previous version was missing the bottom cap and end caps entirely, which is what made it look hollow) using per-vertex colors: sediment color at `bedY`, a murky blended color at `sedimentTopY` (`COLOR_SEDIMENT.lerp(COLOR_WATER, 0.4)`), water color at the water line — GPU-interpolated across each face, giving a real smooth gradient instead of a hard boundary. Kept `side: THREE.DoubleSide` deliberately (not `FrontSide`) — with ~14 separate index-push blocks for walls/caps/end-caps, verifying every one has exactly correct winding by hand was too easy to get wrong, and wrong winding + `FrontSide` silently culls faces (a worse regression than the hollow look this was fixing). Removed `buildBanks()`/`buildGroundWedge()` entirely per explicit ask — the channel is now the only geometry in the scene.
+
+**Resolves when:** N/A — shipped, `tsc`/`vite build` clean. Visual confirmation still pending (no browser-automation tool available in-session) — flagged to the user to check in-browser.

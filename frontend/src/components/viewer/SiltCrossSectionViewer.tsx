@@ -4,14 +4,22 @@ import { SiltCrossSectionScene } from '../../viewer/SiltCrossSectionScene';
 interface SiltCrossSectionViewerProps {
   crossSectionProfile: number[];
   predictedSscMgL: number;
-  /** Same ceiling ml/river_silt_pipeline.py uses to normalize the heatmap — keeps the two views visually consistent. */
+  /**
+   * Visual ceiling for "fully silted." Deliberately the same GAUGE_MAX used
+   * by DredgingIndicator's gauge (real p33/p66 tercile-derived thresholds),
+   * not the heatmap's p99-based 900 mg/L ceiling — that ceiling is tuned
+   * for compressing a heavy-tailed color ramp, not for a 0-1 fill fraction.
+   * At 900, every real (non-flood) reading (1-50 mg/L) rounds to an
+   * invisible sliver; against the same scale the dredging indicator itself
+   * uses, "moderate"/"high" readings actually read as visibly silted.
+   */
   normalizationCeilingMgL?: number;
 }
 
 export const SiltCrossSectionViewer: React.FC<SiltCrossSectionViewerProps> = ({
   crossSectionProfile,
   predictedSscMgL,
-  normalizationCeilingMgL = 900,
+  normalizationCeilingMgL = 40,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<SiltCrossSectionScene | null>(null);
@@ -38,7 +46,7 @@ export const SiltCrossSectionViewer: React.FC<SiltCrossSectionViewerProps> = ({
         <h3 className="text-base font-semibold text-[#36394a] font-heading">Cross-Section</h3>
         <span className="text-[11px] text-[#818898]">Drag to tilt · Scroll to zoom</span>
       </div>
-      <div className="flex-1 relative bg-[#e2e6eb] rounded-[12px] overflow-hidden min-h-[280px] border border-[#cdd2d9]/80 shadow-inner">
+      <div className="flex-1 relative bg-[#e2e6eb] rounded-[12px] overflow-hidden min-h-[440px] sm:min-h-[560px] border border-[#cdd2d9]/80 shadow-inner">
         <div ref={containerRef} className="w-full h-full absolute inset-0 cursor-grab active:cursor-grabbing" />
       </div>
       <div className="flex items-center justify-center gap-4 pt-2.5 text-[11px] text-[#818898]">

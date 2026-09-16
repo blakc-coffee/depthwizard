@@ -10,14 +10,38 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 // this scene has no textures, no flight controls, no disaster modes.
 
 const CHANNEL_WIDTH = 10;
-const CHANNEL_DEPTH = 2.4; // max bed depth below the bank-top water line
-const WATER_LEVEL = 0; // bank-top, fixed reference
-const EXTRUDE_DEPTH = 1.4; // Z-thickness, gives the ribbon a 3D look without real volumetric data
+const CHANNEL_DEPTH = 2.4; // max bed depth below the water line
+const WATER_LEVEL = 0;
+const EXTRUDE_DEPTH = 1.6; // Z-thickness, gives the channel a solid 3D look without real volumetric data
 
-const COLOR_WATER = 0x5e9fd4;
-const COLOR_SEDIMENT = 0x8a6a44;
-const COLOR_BED = 0x4a4638;
-const COLOR_BANK = 0x6b8f5a;
+const COLOR_WATER = new THREE.Color(0x4f8fc7);
+const COLOR_SEDIMENT = new THREE.Color(0x8a6a44);
+// Murky transitional color at the sediment/water boundary, not a hard
+// line — a real turbid riverbed doesn't have a crisp edge where silt ends
+// and clear water begins.
+const COLOR_BOUNDARY = COLOR_SEDIMENT.clone().lerp(COLOR_WATER, 0.4);
+const COLOR_BED_LINE = 0x3a362c;
+const COLOR_BACKGROUND = '#dfe4ea';
+
+// Real per-pixel image variation is jagged at 48 samples — a real riverbed
+// (and especially a settled sediment layer) is smoother than that. A small
+// moving average removes sample-to-sample noise while keeping the real
+// overall shape, instead of literally mirroring every bump.
+function smooth(values: number[], window = 5): number[] {
+  const half = Math.floor(window / 2);
+  return values.map((_, i) => {
+    let sum = 0;
+    let count = 0;
+    for (let k = -half; k <= half; k++) {
+      const j = i + k;
+      if (j >= 0 && j < values.length) {
+        sum += values[j];
+        count += 1;
+      }
+    }
+    return sum / count;
+  });
+}
 
 export class SiltCrossSectionScene {
   private container: HTMLElement;
@@ -33,12 +57,13 @@ export class SiltCrossSectionScene {
     this.container = container;
 
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#e2e6eb');
+    this.scene.background = new THREE.Color(COLOR_BACKGROUND);
+    this.scene.fog = new THREE.Fog(new THREE.Color(COLOR_BACKGROUND).getHex(), 10, 22);
 
     const width = container.clientWidth || 600;
     const height = container.clientHeight || 360;
     this.camera = new THREE.PerspectiveCamera(40, width / height, 0.1, 100);
-    this.camera.position.set(0, 2.2, 9);
+    this.camera.position.set(0, 2.4, 10);
 
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setSize(width, height);
@@ -50,15 +75,23 @@ export class SiltCrossSectionScene {
     this.controls.dampingFactor = 0.08;
     this.controls.minPolarAngle = Math.PI / 2 - 0.5;
     this.controls.maxPolarAngle = Math.PI / 2 + 0.3; // keep it a "side view" — limited tilt, not free orbit
+    // Unbounded scroll-to-zoom previously let the camera clip inside a bank
+    // mesh — clamp so the channel always stays framed.
+    this.controls.minDistance = 4;
+    this.controls.maxDistance = 16;
     this.controls.target.set(0, -CHANNEL_DEPTH / 2, 0);
     this.controls.update();
 
     this.renderer.domElement.addEventListener('wheel', (e) => e.preventDefault(), { passive: false });
 
-    const ambient = new THREE.AmbientLight(0xffffff, 0.7);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-    dir.position.set(4, 6, 5);
-    this.scene.add(ambient, dir);
+    // Hemisphere light (sky/ground tint) + one directional key light reads
+    // far more like a real outdoor scene than flat ambient + one direct.
+    const hemi = new THREE.HemisphereLight(0xcfe0f2, 0x4a3f2f, 0.9);
+    const sun = new THREE.DirectionalLight(0xfff6e6, 1.0);
+    sun.position.set(5, 8, 6);
+    const fill = new THREE.DirectionalLight(0xaeccee, 0.25);
+    fill.position.set(-6, 3, -4);
+    this.scene.add(hemi, sun, fill);
 
     this.setupResizeObserver();
     this.animate = this.animate.bind(this);
@@ -88,88 +121,123 @@ export class SiltCrossSectionScene {
     this.clear();
     const group = new THREE.Group();
     const n = Math.max(profile.length, 2);
+    const smoothed = smooth(profile);
     const xStep = CHANNEL_WIDTH / (n - 1);
 
-    // Real, image-derived skeleton (profile) layered onto a parabolic
+    // Real, image-derived skeleton (smoothed) layered onto a parabolic
     // channel base (deepest mid-channel, shallow at the banks) — same
     // "stylized but grounded in real signal" honesty as the heatmap.
-    const bedY = profile.map((v, i) => {
+    const bedY = smoothed.map((v, i) => {
       const x = i / (n - 1);
       const parabola = Math.sin(Math.PI * x); // 0 at banks, 1 at mid-channel
-      const skeleton = 0.5 + 0.5 * v; // real per-pixel variation, never fully flattens the shape
+      const skeleton = 0.55 + 0.45 * v; // real per-pixel variation, never fully flattens the shape
       return -CHANNEL_DEPTH * parabola * skeleton;
     });
 
+    // Sediment sits as a settled layer along the bottom — a gently
+    // undulating boundary (mostly a function of the intensity level, only
+    // lightly modulated by the real signal), not a shape that mirrors
+    // every bump of the bed. Physically: sediment deposits fill in the low
+    // spots and smooth the bed out, they don't amplify its noise.
     const sedimentTopY = bedY.map((bed, i) => {
-      const local = 0.6 + 0.4 * profile[i]; // local thickness variation, still grounded in real signal
-      const thickness = Math.min(-bed, CHANNEL_DEPTH * sedimentIntensity * local);
+      const local = 0.9 + 0.2 * smoothed[i]; // small real-signal modulation only
+      const thickness = Math.max(0, Math.min(-bed, CHANNEL_DEPTH * sedimentIntensity * local));
       return bed + thickness;
     });
 
-    group.add(this.buildRibbon(bedY, sedimentTopY, xStep, COLOR_SEDIMENT, 0));
-    group.add(this.buildRibbon(sedimentTopY, bedY.map(() => WATER_LEVEL), xStep, COLOR_WATER, 0.55));
-    group.add(this.buildFloor(bedY, xStep));
-    group.add(this.buildBanks());
+    group.add(this.buildChannel(bedY, sedimentTopY, xStep));
+    group.add(this.buildBedLine(bedY, xStep));
 
     this.group = group;
     this.scene.add(group);
   }
 
-  private buildRibbon(bottomY: number[], topY: number[], xStep: number, color: number, opacity: number): THREE.Mesh {
-    const n = bottomY.length;
+  /**
+   * One fully solid, closed mesh spanning bedY (sediment color) up through
+   * sedimentTopY (murky boundary color) to the water line (water color) —
+   * vertex colors interpolate smoothly across each face, giving a real
+   * gradient instead of two flat-colored layers meeting at a hard edge.
+   * Closed on every side (front/back walls, top, bottom, and end caps) so
+   * there is no open/hollow interior visible from any angle.
+   */
+  private buildChannel(bedY: number[], sedimentTopY: number[], xStep: number): THREE.Mesh {
+    const n = bedY.length;
+    const levelYs = (i: number) => [bedY[i], sedimentTopY[i], WATER_LEVEL];
+    const levelColors = [COLOR_SEDIMENT, COLOR_BOUNDARY, COLOR_WATER];
+
     const positions: number[] = [];
-    const indices: number[] = [];
+    const colors: number[] = [];
+    // vertexIndex(i, level, z) -> index into positions/colors, z: 0=front, 1=back
+    const stride = 6; // 3 levels x 2 depths per column
+    const idx = (i: number, level: number, z: number) => i * stride + level * 2 + z;
+
     for (let i = 0; i < n; i++) {
       const x = -CHANNEL_WIDTH / 2 + i * xStep;
-      // front face (z=0) and back face (z=-EXTRUDE_DEPTH), bottom then top each
-      positions.push(x, bottomY[i], 0, x, topY[i], 0, x, bottomY[i], -EXTRUDE_DEPTH, x, topY[i], -EXTRUDE_DEPTH);
+      const ys = levelYs(i);
+      for (let level = 0; level < 3; level++) {
+        const c = levelColors[level];
+        positions.push(x, ys[level], 0); // front
+        colors.push(c.r, c.g, c.b);
+        positions.push(x, ys[level], -EXTRUDE_DEPTH); // back
+        colors.push(c.r, c.g, c.b);
+      }
     }
+
+    const indices: number[] = [];
     for (let i = 0; i < n - 1; i++) {
-      const a = i * 4, b = (i + 1) * 4;
-      // front quad
-      indices.push(a, a + 1, b, b, a + 1, b + 1);
-      // back quad
-      indices.push(a + 2, b + 2, a + 3, b + 3, a + 3, b + 2);
-      // top quad (connecting front/back at topY)
-      indices.push(a + 1, a + 3, b + 1, b + 1, a + 3, b + 3);
+      for (let level = 0; level < 2; level++) {
+        const a0 = idx(i, level, 0), a1 = idx(i, level + 1, 0);
+        const b0 = idx(i + 1, level, 0), b1 = idx(i + 1, level + 1, 0);
+        const a0z = idx(i, level, 1), a1z = idx(i, level + 1, 1);
+        const b0z = idx(i + 1, level, 1), b1z = idx(i + 1, level + 1, 1);
+        // front wall segment
+        indices.push(a0, a1, b0, b0, a1, b1);
+        // back wall segment (reversed winding)
+        indices.push(a0z, b0z, a1z, b1z, a1z, b0z);
+      }
+      // bottom cap (bedY, level 0) and top cap (water line, level 2)
+      const aBotF = idx(i, 0, 0), aBotB = idx(i, 0, 1);
+      const bBotF = idx(i + 1, 0, 0), bBotB = idx(i + 1, 0, 1);
+      indices.push(aBotF, bBotF, aBotB, bBotB, aBotB, bBotF);
+      const aTopF = idx(i, 2, 0), aTopB = idx(i, 2, 1);
+      const bTopF = idx(i + 1, 2, 0), bTopB = idx(i + 1, 2, 1);
+      indices.push(aTopF, aTopB, bTopF, bTopF, aTopB, bTopB);
     }
+    // end caps (i=0 and i=n-1) — otherwise the channel is open at both ends
+    for (const [i, flip] of [[0, false], [n - 1, true]] as [number, boolean][]) {
+      for (let level = 0; level < 2; level++) {
+        const f0 = idx(i, level, 0), f1 = idx(i, level + 1, 0);
+        const z0 = idx(i, level, 1), z1 = idx(i, level + 1, 1);
+        if (!flip) indices.push(f0, z0, f1, f1, z0, z1);
+        else indices.push(f0, f1, z0, f1, z1, z0);
+      }
+    }
+
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geometry.setIndex(indices);
     geometry.computeVertexNormals();
     const material = new THREE.MeshStandardMaterial({
-      color,
-      transparent: opacity < 1,
-      opacity,
+      vertexColors: true,
       side: THREE.DoubleSide,
-      roughness: 0.85,
+      roughness: 0.75,
+      metalness: 0.0,
     });
     return new THREE.Mesh(geometry, material);
   }
 
-  private buildFloor(bedY: number[], xStep: number): THREE.Line {
+  private buildBedLine(bedY: number[], xStep: number): THREE.Line {
     const n = bedY.length;
     const positions: number[] = [];
     for (let i = 0; i < n; i++) {
       const x = -CHANNEL_WIDTH / 2 + i * xStep;
-      positions.push(x, bedY[i] - 0.05, -EXTRUDE_DEPTH / 2);
+      positions.push(x, bedY[i] - 0.03, -EXTRUDE_DEPTH / 2);
     }
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    const material = new THREE.LineBasicMaterial({ color: COLOR_BED, linewidth: 2 });
+    const material = new THREE.LineBasicMaterial({ color: COLOR_BED_LINE, linewidth: 2, transparent: true, opacity: 0.5 });
     return new THREE.Line(geometry, material); // riverbed outline, purely decorative
-  }
-
-  private buildBanks(): THREE.Group {
-    const group = new THREE.Group();
-    const bankGeo = new THREE.BoxGeometry(1.2, 0.6, EXTRUDE_DEPTH);
-    const bankMat = new THREE.MeshStandardMaterial({ color: COLOR_BANK, roughness: 0.9 });
-    const left = new THREE.Mesh(bankGeo, bankMat);
-    left.position.set(-CHANNEL_WIDTH / 2 - 0.5, WATER_LEVEL + 0.3, -EXTRUDE_DEPTH / 2);
-    const right = left.clone();
-    right.position.x = CHANNEL_WIDTH / 2 + 0.5;
-    group.add(left, right);
-    return group;
   }
 
   private clear(): void {

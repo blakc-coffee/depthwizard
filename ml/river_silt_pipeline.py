@@ -76,8 +76,11 @@ MODEL_QUALITY_WARNING = (
 DENSE_HEATMAP_CAVEAT = (
     "Heatmap spatial pattern comes from per-pixel color (NDTI) variation across the "
     "whole image, not a verified water mask — a generic RGB-only upload has no "
-    "multispectral bands to detect water reliably. Shows real relative color "
-    "variation, not confirmed water-only turbidity structure."
+    "multispectral bands to detect water reliably (an RGB-only \"blueness\" water-mask "
+    "heuristic was tried and measured unreliable: 24-71% false-positive coverage "
+    "across 5 real test images, vs. a real river's ~2-4% of a similar-size crop — "
+    "see docs/open_decisions.md). Shows real relative color variation, not confirmed "
+    "water-only turbidity structure."
 )
 CROSS_SECTION_CAVEAT = (
     "Cross-section shape is derived from real per-pixel image variation (NDTI "

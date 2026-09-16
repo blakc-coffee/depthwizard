@@ -1,5 +1,15 @@
 import { ApiException, KnownErrorCodes } from './errors';
 import {
+  REAL_DEMO_CROSS_SECTION,
+  REAL_DEMO_HEATMAP_PNG,
+  REAL_DEMO_TEXTURE_PNG,
+} from './realSiltDemoFixture';
+import {
+  REAL_DEMO_2_CROSS_SECTION,
+  REAL_DEMO_2_HEATMAP_PNG,
+  REAL_DEMO_2_TEXTURE_PNG,
+} from './realSiltDemoFixture2';
+import {
   CreateJobResponse,
   CreateSiltJobResponse,
   JobListResponse,
@@ -205,6 +215,37 @@ export async function mockGetSiltJob(jobId: string): Promise<SiltJobStatusRespon
 }
 
 export async function mockGetSiltJobResult(jobId: string): Promise<SiltJobResult> {
+  // Dev-only: real pipeline output on test_input_river_silt.tif, not the
+  // 1x1 placeholder images — visit /silt-results/real-demo to sanity-check
+  // actual heatmap/cross-section rendering. See realSiltDemoFixture.ts.
+  if (jobId === 'real-demo') {
+    return {
+      ...mockSiltJobResult,
+      job_id: jobId,
+      predicted_ssc_mg_l: 1.31,
+      dredging_level: 'low',
+      dredging_label: 'No dredging indicated — sediment level is in the lower third of observed rivers.',
+      artifacts: {
+        texture_url: REAL_DEMO_TEXTURE_PNG,
+        heatmap_url: REAL_DEMO_HEATMAP_PNG,
+      },
+      cross_section_profile: REAL_DEMO_CROSS_SECTION,
+    };
+  }
+  if (jobId === 'real-demo-2') {
+    return {
+      ...mockSiltJobResult,
+      job_id: jobId,
+      predicted_ssc_mg_l: 17.72,
+      dredging_level: 'moderate',
+      dredging_label: 'Monitor — sediment level is mid-range; consider scheduling an inspection.',
+      artifacts: {
+        texture_url: REAL_DEMO_2_TEXTURE_PNG,
+        heatmap_url: REAL_DEMO_2_HEATMAP_PNG,
+      },
+      cross_section_profile: REAL_DEMO_2_CROSS_SECTION,
+    };
+  }
   return { ...mockSiltJobResult, job_id: jobId };
 }
 

@@ -22,7 +22,12 @@ __pycache__/
 .venv/
 .DS_Store
 
-# Neither image needs the frontend or downloaded model weights.
+# Neither image needs the frontend. Most ml/models/ weights are experiment
+# artifacts the worker doesn't need either — except the production
+# river-silt regressor, which it loads at runtime for every silt job.
+# `ml/models/*`, not `ml/models/` — excluding the directory itself means
+# Docker never looks inside it, so a negation below can't re-include anything.
 frontend/
-ml/models/
+ml/models/*
+!ml/models/river_silt_regressor_xgb_v1.json
 node_modules/

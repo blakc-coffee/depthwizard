@@ -21,9 +21,23 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
 from app.auth.dependencies import get_current_user_id
+from app.core.rate_limit import limiter
 from app.db.models import Base
 from app.db.session import get_db
 from app.main import app
+
+# Real bug found running the full suite: slowapi's limiter is backed by the
+# same Redis every test run shares (app/core/rate_limit.py), not reset
+# between tests or even between separate `pytest` invocations. Isolation
+# tests that each create a job (POST /api/v1/jobs, limited to 10/hour) start
+# hitting 429s once enough of them have run in the same window — nothing to
+# do with the isolation logic they're actually testing. Disabled here, not
+# per-test, since no test in this suite is testing real 429 enforcement over
+# HTTP — test_rate_limits.py only checks that every route *has* a decorator.
+@pytest.fixture(scope="session", autouse=True)
+def _disable_rate_limiting():
+    limiter.enabled = False
+
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL",

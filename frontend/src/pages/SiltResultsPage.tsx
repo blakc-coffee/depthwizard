@@ -3,7 +3,6 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
 import { DredgingIndicator } from '../components/results/DredgingIndicator';
 import { SiltCrossSectionViewer } from '../components/viewer/SiltCrossSectionViewer';
-import { SiltHeatmapViewer } from '../components/viewer/SiltHeatmapViewer';
 import { getSiltJobResult } from '../lib/api';
 import { getFriendlyErrorMessage } from '../lib/errors';
 import { SiltJobResult } from '../lib/types';
@@ -104,21 +103,41 @@ export const SiltResultsPage = () => {
 
         {result && (
           <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-6 items-start">
-            <div className="flex flex-col gap-6">
-              <SiltHeatmapViewer
-                sourceImageUrl={result.artifacts.texture_url}
-                heatmapUrl={result.artifacts.heatmap_url}
-                outputType={result.output_type}
-                meanSscMgL={result.predicted_ssc_mg_l}
-                peakSscMgL={result.predicted_ssc_mg_l}
-                confidence={null}
-              />
+            {/* Main: channel shape + sediment level is the hero view */}
+            <div className="min-h-[480px] xl:min-h-[600px] flex flex-col">
               <SiltCrossSectionViewer
                 crossSectionProfile={result.cross_section_profile}
                 predictedSscMgL={result.predicted_ssc_mg_l}
               />
             </div>
-            <div className="w-full xl:w-80 flex-shrink-0">
+
+            {/* Side panel: source photo (reference only) + stats + dredging */}
+            <div className="w-full xl:w-80 flex-shrink-0 flex flex-col gap-4">
+              <div className="bg-white rounded-[8px] border border-[#cdd2d9] p-3 shadow-2xs">
+                <h4 className="text-xs font-semibold text-[#36394a] font-heading mb-2">Source Image</h4>
+                <img
+                  src={result.artifacts.texture_url}
+                  alt="Uploaded river reach"
+                  className="w-full rounded-[6px] border border-[#cdd2d9]/70 object-cover"
+                />
+              </div>
+
+              <div className="bg-white rounded-[8px] border border-[#cdd2d9] p-3.5 shadow-2xs">
+                <h4 className="text-xs font-semibold text-[#36394a] font-heading mb-2">Silt Summary</h4>
+                <dl className="space-y-1.5 text-xs">
+                  <div className="flex justify-between">
+                    <dt className="text-[#666d80]">Predicted SSC</dt>
+                    <dd className="font-mono font-medium text-[#36394a]">
+                      {result.predicted_ssc_mg_l.toFixed(1)} mg/L
+                    </dd>
+                  </div>
+                  <div className="flex justify-between">
+                    <dt className="text-[#666d80]">Output type</dt>
+                    <dd className="font-mono font-medium text-[#36394a]">{isAbsolute ? 'Absolute' : 'Relative'}</dd>
+                  </div>
+                </dl>
+              </div>
+
               <DredgingIndicator
                 level={result.dredging_level}
                 label={result.dredging_label}
