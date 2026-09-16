@@ -7,12 +7,13 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, UploadFile
+from fastapi import APIRouter, Depends, Request, UploadFile
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user_id
 from app.core.config import get_settings
 from app.core.errors import ApiException, ErrorCode
+from app.core.rate_limit import limiter
 from app.db.session import get_db
 from app.schemas.errors import ApiError
 from app.schemas.silt_jobs import (
@@ -32,7 +33,9 @@ router = APIRouter(prefix="/api/v1/silt-jobs", tags=["silt-jobs"])
 
 
 @router.post("", status_code=202, response_model=CreateSiltJobResponse)
+@limiter.limit("10/hour")
 async def create_silt_job(
+    request: Request,
     file: UploadFile,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -73,7 +76,9 @@ async def create_silt_job(
 
 
 @router.get("/{job_id}", response_model=SiltJobStatusResponse)
+@limiter.limit("60/minute")
 def get_silt_job(
+    request: Request,
     job_id: uuid.UUID,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -86,7 +91,9 @@ def get_silt_job(
 
 
 @router.get("/{job_id}/result", response_model=SiltJobResult)
+@limiter.limit("30/minute")
 def get_silt_job_result(
+    request: Request,
     job_id: uuid.UUID,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
@@ -114,7 +121,9 @@ def get_silt_job_result(
 
 
 @router.get("", response_model=SiltJobListResponse)
+@limiter.limit("30/minute")
 def list_silt_jobs(
+    request: Request,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> SiltJobListResponse:
@@ -135,7 +144,9 @@ def list_silt_jobs(
 
 
 @router.delete("/{job_id}", status_code=204)
+@limiter.limit("20/minute")
 def delete_silt_job(
+    request: Request,
     job_id: uuid.UUID,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
