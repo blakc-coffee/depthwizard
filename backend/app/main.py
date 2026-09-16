@@ -11,7 +11,6 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
-from slowapi.middleware import SlowAPIMiddleware
 
 from app.core.body_limit import MaxBodySizeMiddleware
 from app.core.config import get_settings
@@ -42,7 +41,6 @@ app.add_middleware(
 )
 
 app.state.limiter = limiter
-app.add_middleware(SlowAPIMiddleware)
 
 app.include_router(health.router)
 app.include_router(jobs.router)

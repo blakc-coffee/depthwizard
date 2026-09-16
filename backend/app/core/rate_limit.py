@@ -8,6 +8,9 @@ account can trigger it. Keyed by the authenticated user's id when available
 (set on request.state by auth/dependencies.py), falling back to client IP
 for requests that never get that far (e.g. a missing/invalid token).
 
+There is no app-wide default limit: every endpoint declares its own
+@limiter.limit, and tests/test_rate_limits.py fails if one is missing.
+
 Backed by the same Redis Celery already uses. This is a different kind of
 use than the "Redis is Celery broker only, never job status" rule guards
 against — that rule is specifically about not using Redis as a second,
@@ -33,5 +36,4 @@ def rate_limit_key(request: Request) -> str:
 limiter = Limiter(
     key_func=rate_limit_key,
     storage_uri=get_settings().redis_url.get_secret_value(),
-    default_limits=["100/minute"],
 )
