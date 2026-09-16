@@ -25,7 +25,7 @@ from app.schemas.silt_jobs import (
 )
 from app.services import storage
 from app.services.silt_jobs import SiltJobService
-from app.services.upload_validation import sniff_media_type, validate_image_content
+from app.services.upload_validation import sanitize_filename, sniff_media_type, validate_image_content
 from app.tasks.process_river_silt_image import process_river_silt_image
 
 router = APIRouter(prefix="/api/v1/silt-jobs", tags=["silt-jobs"])
@@ -46,7 +46,7 @@ async def create_silt_job(
     media_type = sniff_media_type(content)
     validate_image_content(content, media_type, settings.max_image_pixels)
 
-    filename = file.filename or "upload"
+    filename = sanitize_filename(file.filename)
     job_id = uuid.uuid4()
     stored_path = storage.input_path(user_id, str(job_id), filename)
 
