@@ -36,10 +36,16 @@ node_modules/
 # they're already gitignored and are training-time-only (multi-GB raw
 # imagery/caches, never read at inference). `COPY ml/ ml/` in worker/Dockerfile
 # was copying all of it into every build — 3.5GB+ for river_silt_raw/ alone,
-# enough to exhaust local disk mid-build. Neither image needs any of this.
+# enough to exhaust local disk mid-build. Neither image needs any of this,
+# EXCEPT river_silt_raw/koppen/ — a small (2.7MB) reference table the
+# pipeline actually reads at inference (real bug, see .gitignore for the
+# full story: it was never committed at all until now). `river_silt_raw/*`,
+# not the bare dir, so the negation below can actually reach it.
 ml/depth/samples/
 ml/data/samples/
 ml/data/cache/
-ml/data/river_silt_raw/
+ml/data/river_silt_raw/*
+!ml/data/river_silt_raw/koppen/
+!ml/data/river_silt_raw/koppen/Koeppen-Geiger-ASCII.txt
 /supplementary-data/
 /data/

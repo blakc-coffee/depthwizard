@@ -75,8 +75,19 @@ ml/data/cache/
 
 # River silt use case: raw SSC matchup CSVs (multi-GB, external datasets),
 # staged at repo root before being sorted into ml/data/river_silt_raw/.
+# Except koppen/ — that's a small (2.7MB) reference table the pipeline
+# actually reads at inference time (ml/features/koppen_climate.py), not
+# training-only raw data. Real bug found 2026-09-17: it was never
+# committed at all, so every georeferenced silt job failed in production
+# with FileNotFoundError — this predates any dockerignore change, the file
+# was simply never in the repo Northflank builds from.
+# `/ml/data/river_silt_raw/*`, not the bare dir — excluding the directory
+# itself would make the negation below unreachable (same gotcha as the
+# ml/models/ fix above).
 /*.csv
-/ml/data/river_silt_raw/
+/ml/data/river_silt_raw/*
+!/ml/data/river_silt_raw/koppen/
+!/ml/data/river_silt_raw/koppen/Koeppen-Geiger-ASCII.txt
 
 # GCP service-account key (Earth Engine credential) — root-only, never
 # committed regardless of filename; nested json (package.json, tsconfig,
