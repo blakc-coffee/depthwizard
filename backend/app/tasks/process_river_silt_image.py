@@ -23,7 +23,6 @@ from app.core.errors import NON_RETRYABLE_CODES, ApiException, ErrorCode
 from app.db.session import SessionLocal
 from app.services import storage
 from app.services.silt_jobs import SiltJobService
-from ml.river_silt_pipeline import run_silt_pipeline
 
 logger = logging.getLogger("depthwizard.worker")
 
@@ -58,6 +57,10 @@ def process_river_silt_image(self, job_id: str) -> None:
 
         user_id = str(job.user_id)
         local_input = storage.download_input(job.input_path)
+
+        # Deferred: the API imports this module only to enqueue the task, and
+        # its image has neither ml/ nor the ML libraries — only the worker runs this.
+        from ml.river_silt_pipeline import run_silt_pipeline
 
         result = run_silt_pipeline(str(local_input), str(workdir))
 
