@@ -31,3 +31,15 @@ frontend/
 ml/models/*
 !ml/models/river_silt_regressor_xgb_v1.json
 node_modules/
+
+# Real bug found 2026-09-17: none of these were dockerignored, even though
+# they're already gitignored and are training-time-only (multi-GB raw
+# imagery/caches, never read at inference). `COPY ml/ ml/` in worker/Dockerfile
+# was copying all of it into every build — 3.5GB+ for river_silt_raw/ alone,
+# enough to exhaust local disk mid-build. Neither image needs any of this.
+ml/depth/samples/
+ml/data/samples/
+ml/data/cache/
+ml/data/river_silt_raw/
+/supplementary-data/
+/data/

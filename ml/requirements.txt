@@ -10,3 +10,4 @@ pytest==8.3.4
 matplotlib==3.11.1  # tools/depth_truth_diff.py's diagnostic renders only — not imported by ml/ itself
 earthengine-api==1.6.9  # ml/data/fetch_river_silt_imagery.py only — pulls Landsat/Sentinel-2 scenes for the river-silt use case
 xgboost==2.1.4  # ml/calibration/train_river_silt_regressor_xgb.py — literature-standard model for SSC regression (docs/open_decisions.md, 2026-09-14). macOS: also needs `brew install libomp` (xgboost's OpenMP runtime, not pip-installable).
+scikit-learn==1.7.2  # xgboost.XGBRegressor (the sklearn-API wrapper ml/river_silt_pipeline.py loads at inference) hard-requires this — real bug found 2026-09-17: it was never declared here, only present by accident in local dev venvs, so the deployed worker had no way to load the silt model even with the checkpoint file present.
