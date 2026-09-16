@@ -10,6 +10,11 @@ import {
   REAL_DEMO_2_TEXTURE_PNG,
 } from './realSiltDemoFixture2';
 import {
+  REAL_DEMO_3_CROSS_SECTION,
+  REAL_DEMO_3_HEATMAP_PNG,
+  REAL_DEMO_3_TEXTURE_PNG,
+} from './realSiltDemoFixture3';
+import {
   CreateJobResponse,
   CreateSiltJobResponse,
   JobListResponse,
@@ -244,6 +249,20 @@ export async function mockGetSiltJobResult(jobId: string): Promise<SiltJobResult
         heatmap_url: REAL_DEMO_2_HEATMAP_PNG,
       },
       cross_section_profile: REAL_DEMO_2_CROSS_SECTION,
+    };
+  }
+  if (jobId === 'real-demo-3') {
+    return {
+      ...mockSiltJobResult,
+      job_id: jobId,
+      predicted_ssc_mg_l: 3.93,
+      dredging_level: 'low',
+      dredging_label: 'No dredging indicated — sediment level is in the lower third of observed rivers.',
+      artifacts: {
+        texture_url: REAL_DEMO_3_TEXTURE_PNG,
+        heatmap_url: REAL_DEMO_3_HEATMAP_PNG,
+      },
+      cross_section_profile: REAL_DEMO_3_CROSS_SECTION,
     };
   }
   return { ...mockSiltJobResult, job_id: jobId };

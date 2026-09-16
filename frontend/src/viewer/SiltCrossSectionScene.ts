@@ -68,6 +68,8 @@ export class SiltCrossSectionScene {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     this.renderer.setSize(width, height);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -89,6 +91,16 @@ export class SiltCrossSectionScene {
     const hemi = new THREE.HemisphereLight(0xcfe0f2, 0x4a3f2f, 0.9);
     const sun = new THREE.DirectionalLight(0xfff6e6, 1.0);
     sun.position.set(5, 8, 6);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    const shadowCam = sun.shadow.camera as THREE.OrthographicCamera;
+    shadowCam.left = -CHANNEL_WIDTH;
+    shadowCam.right = CHANNEL_WIDTH;
+    shadowCam.top = 4;
+    shadowCam.bottom = -CHANNEL_DEPTH * 2;
+    shadowCam.near = 1;
+    shadowCam.far = 20;
+    sun.shadow.bias = -0.002;
     const fill = new THREE.DirectionalLight(0xaeccee, 0.25);
     fill.position.set(-6, 3, -4);
     this.scene.add(hemi, sun, fill);
@@ -147,9 +159,44 @@ export class SiltCrossSectionScene {
 
     group.add(this.buildChannel(bedY, sedimentTopY, xStep));
     group.add(this.buildBedLine(bedY, xStep));
+    group.add(this.buildWaterSurface(xStep, n));
 
     this.group = group;
     this.scene.add(group);
+  }
+
+  /**
+   * A thin, glossy, semi-transparent ribbon riding just above the solid
+   * channel's water-color top surface — a static shine, not an animated
+   * ripple. Purely decorative overlay; the solid mesh underneath (with the
+   * real sediment/water gradient) is untouched.
+   */
+  private buildWaterSurface(xStep: number, n: number): THREE.Mesh {
+    const positions: number[] = [];
+    const indices: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const x = -CHANNEL_WIDTH / 2 + i * xStep;
+      positions.push(x, WATER_LEVEL + 0.02, 0.05, x, WATER_LEVEL + 0.02, -EXTRUDE_DEPTH - 0.05);
+    }
+    for (let i = 0; i < n - 1; i++) {
+      const a = i * 2, b = (i + 1) * 2;
+      indices.push(a, a + 1, b, b, a + 1, b + 1);
+      indices.push(a, b, a + 1, a + 1, b, b + 1); // back face, visible from below too
+    }
+
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    const material = new THREE.MeshStandardMaterial({
+      color: COLOR_WATER,
+      transparent: true,
+      opacity: 0.5,
+      roughness: 0.05,
+      metalness: 0.15,
+      side: THREE.DoubleSide,
+    });
+    return new THREE.Mesh(geometry, material);
   }
 
   /**
@@ -213,18 +260,37 @@ export class SiltCrossSectionScene {
       }
     }
 
+    // Expand to non-indexed: walls, top/bottom caps, and end caps share
+    // vertices at their seams above, but those faces point in very
+    // different directions. computeVertexNormals() on an indexed geometry
+    // averages normals across every face touching a shared vertex — real
+    // bug found here: that averaging blended a vertical wall's outward
+    // normal with a horizontal cap's up/down normal at every shared edge,
+    // producing wrong, muddy lighting (the mesh rendered almost black).
+    // Duplicating vertices per-triangle (no shared index buffer) gives
+    // each triangle its own correct flat normal instead.
+    const flatPositions: number[] = [];
+    const flatColors: number[] = [];
+    for (const vertexIndex of indices) {
+      flatPositions.push(positions[vertexIndex * 3], positions[vertexIndex * 3 + 1], positions[vertexIndex * 3 + 2]);
+      flatColors.push(colors[vertexIndex * 3], colors[vertexIndex * 3 + 1], colors[vertexIndex * 3 + 2]);
+    }
+
     const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-    geometry.setIndex(indices);
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(flatPositions, 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(flatColors, 3));
     geometry.computeVertexNormals();
     const material = new THREE.MeshStandardMaterial({
       vertexColors: true,
       side: THREE.DoubleSide,
       roughness: 0.75,
       metalness: 0.0,
+      flatShading: true,
     });
-    return new THREE.Mesh(geometry, material);
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
   }
 
   private buildBedLine(bedY: number[], xStep: number): THREE.Line {
