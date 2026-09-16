@@ -8,3 +8,5 @@ datasets==5.0.1
 rasterio==1.5.1
 pytest==8.3.4
 matplotlib==3.11.1  # tools/depth_truth_diff.py's diagnostic renders only — not imported by ml/ itself
+earthengine-api==1.6.9  # ml/data/fetch_river_silt_imagery.py only — pulls Landsat/Sentinel-2 scenes for the river-silt use case
+xgboost==2.1.4  # ml/calibration/train_river_silt_regressor_xgb.py — literature-standard model for SSC regression (docs/open_decisions.md, 2026-09-14). macOS: also needs `brew install libomp` (xgboost's OpenMP runtime, not pip-installable).

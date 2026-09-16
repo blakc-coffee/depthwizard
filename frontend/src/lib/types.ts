@@ -47,6 +47,54 @@ export interface JobListResponse {
   jobs: JobSummary[];
 }
 
+// River-silt use case — a sibling shape to Job*, not a variant of it (see
+// backend/app/db/models.py::SiltJob and docs/phase_river_silt.md).
+export type SiltJobStage = 'loading_input' | 'estimating_silt' | 'packaging' | 'uploading_results';
+export type SiltOutputType = 'relative_silt_index' | 'absolute_ssc';
+export type DredgingLevel = 'low' | 'moderate' | 'high';
+
+export interface CreateSiltJobResponse {
+  job_id: string;
+  status: JobStatus;
+}
+
+export interface SiltJobStatusResponse {
+  job_id: string;
+  status: JobStatus;
+  stage?: SiltJobStage | null;
+  progress?: number | null;
+  error?: JobError | null;
+}
+
+export interface SiltJobArtifacts {
+  texture_url: string;
+  heatmap_url: string;
+}
+
+export interface SiltJobResult {
+  job_id: string;
+  output_type: SiltOutputType;
+  artifacts: SiltJobArtifacts;
+  predicted_ssc_mg_l: number;
+  dredging_level: DredgingLevel;
+  dredging_label: string;
+  cross_section_profile: number[];
+  warnings: string[];
+}
+
+export interface SiltJobSummary {
+  job_id: string;
+  status: JobStatus;
+  output_type?: SiltOutputType | null;
+  input_filename: string;
+  created_at: string;
+  completed_at?: string | null;
+}
+
+export interface SiltJobListResponse {
+  jobs: SiltJobSummary[];
+}
+
 export interface JobArtifacts {
   texture_url: string;
   heightmap_url: string;

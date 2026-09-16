@@ -1,11 +1,21 @@
 import { ApiException, KnownErrorCodes } from './errors';
 import {
   CreateJobResponse,
+  CreateSiltJobResponse,
   JobListResponse,
   JobResult,
   JobStatusResponse,
+  SiltJobListResponse,
+  SiltJobResult,
+  SiltJobStatusResponse,
 } from './types';
-import { mockAbsoluteJobResult, mockJobsList, mockRelativeJobResult } from './mockFixtures';
+import {
+  mockAbsoluteJobResult,
+  mockJobsList,
+  mockRelativeJobResult,
+  mockSiltJobResult,
+  mockSiltJobsList,
+} from './mockFixtures';
 
 const mockStateStore = new Map<
   string,
@@ -163,4 +173,45 @@ export async function mockGetJobs(): Promise<JobListResponse> {
 
 export async function mockDeleteJob(jobId: string): Promise<void> {
   mockStateStore.delete(jobId);
+}
+
+// River-silt mock endpoints — simpler than the terrain mocks above (one
+// output shape, no GeoTIFF/relative branching) since the real pipeline
+// itself only has one placeholder path right now (ml/river_silt_pipeline.py).
+const mockSiltStateStore = new Map<string, { startTime: number }>();
+
+export async function mockCreateSiltJob(file: File): Promise<CreateSiltJobResponse> {
+  if (file.name.toLowerCase().includes('too_large')) {
+    throw new ApiException(KnownErrorCodes.FILE_TOO_LARGE, 'File exceeds the maximum upload limit.');
+  }
+  const jobId = `mock-silt-job-${Date.now()}`;
+  mockSiltStateStore.set(jobId, { startTime: Date.now() });
+  return { job_id: jobId, status: 'queued' };
+}
+
+export async function mockGetSiltJob(jobId: string): Promise<SiltJobStatusResponse> {
+  const jobState = mockSiltStateStore.get(jobId);
+  if (!jobState) {
+    return { job_id: jobId, status: 'completed', stage: 'uploading_results', progress: 100 };
+  }
+
+  const elapsedMs = Date.now() - jobState.startTime;
+  if (elapsedMs < 800) {
+    return { job_id: jobId, status: 'queued', stage: 'loading_input', progress: 10 };
+  } else if (elapsedMs < 1800) {
+    return { job_id: jobId, status: 'processing', stage: 'estimating_silt', progress: 50 };
+  }
+  return { job_id: jobId, status: 'completed', stage: 'uploading_results', progress: 100 };
+}
+
+export async function mockGetSiltJobResult(jobId: string): Promise<SiltJobResult> {
+  return { ...mockSiltJobResult, job_id: jobId };
+}
+
+export async function mockGetSiltJobs(): Promise<SiltJobListResponse> {
+  return { jobs: mockSiltJobsList };
+}
+
+export async function mockDeleteSiltJob(jobId: string): Promise<void> {
+  mockSiltStateStore.delete(jobId);
 }

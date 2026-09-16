@@ -65,6 +65,7 @@ def user_box() -> dict[str, str | None]:
 def client(db_session, user_box, monkeypatch):
     from app.services import storage as storage_module
     from app.tasks import process_image as task_module
+    from app.tasks import process_river_silt_image as silt_task_module
 
     monkeypatch.setattr(storage_module, "save_input", lambda *a, **k: "inputs/fake/fake/original.png")
     monkeypatch.setattr(storage_module, "delete_job_artifacts", lambda *a, **k: None)
@@ -75,6 +76,7 @@ def client(db_session, user_box, monkeypatch):
         id = "fake-task-id"
 
     monkeypatch.setattr(task_module.process_image, "delay", lambda *a, **k: _FakeAsyncResult())
+    monkeypatch.setattr(silt_task_module.process_river_silt_image, "delay", lambda *a, **k: _FakeAsyncResult())
 
     app.dependency_overrides[get_db] = lambda: db_session
     app.dependency_overrides[get_current_user_id] = lambda: user_box["user_id"]

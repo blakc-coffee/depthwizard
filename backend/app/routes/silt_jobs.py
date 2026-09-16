@@ -1,6 +1,6 @@
-"""Job endpoints (PRD §9.5–§9.6).
-
-Owner: Backend Engineer A. See PRD §9.
+"""River-silt job endpoints — mirrors app/routes/jobs.py's shape and
+validation (same upload sniffing/verification, same auth/ownership pattern),
+pointed at SiltJobService and process_river_silt_image instead.
 """
 
 from __future__ import annotations
@@ -15,30 +15,28 @@ from app.core.config import get_settings
 from app.core.errors import ApiException, ErrorCode
 from app.db.session import get_db
 from app.schemas.errors import ApiError
-from app.schemas.jobs import (
-    CreateJobResponse,
-    JobArtifacts,
-    JobListResponse,
-    JobMetadata,
-    JobMetrics,
-    JobResult,
-    JobStatusResponse,
-    JobSummary,
+from app.schemas.silt_jobs import (
+    CreateSiltJobResponse,
+    SiltJobArtifacts,
+    SiltJobListResponse,
+    SiltJobResult,
+    SiltJobStatusResponse,
+    SiltJobSummary,
 )
 from app.services import storage
-from app.services.jobs import JobService
+from app.services.silt_jobs import SiltJobService
 from app.services.upload_validation import sniff_media_type, validate_image_content
-from app.tasks.process_image import process_image
+from app.tasks.process_river_silt_image import process_river_silt_image
 
-router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
+router = APIRouter(prefix="/api/v1/silt-jobs", tags=["silt-jobs"])
 
 
-@router.post("", status_code=202, response_model=CreateJobResponse)
-async def create_job(
+@router.post("", status_code=202, response_model=CreateSiltJobResponse)
+async def create_silt_job(
     file: UploadFile,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
-) -> CreateJobResponse:
+) -> CreateSiltJobResponse:
     settings = get_settings()
     content = await file.read()
 
@@ -52,7 +50,7 @@ async def create_job(
     job_id = uuid.uuid4()
     stored_path = storage.input_path(user_id, str(job_id), filename)
 
-    jobs = JobService(db)
+    jobs = SiltJobService(db)
     job = jobs.create(
         job_id=job_id,
         user_id=user_id,
@@ -68,64 +66,62 @@ async def create_job(
         db.commit()
         raise
 
-    async_result = process_image.delay(str(job.id))
+    async_result = process_river_silt_image.delay(str(job.id))
     jobs.set_celery_task_id(job.id, async_result.id)
 
-    return CreateJobResponse(job_id=job.id, status="queued")
+    return CreateSiltJobResponse(job_id=job.id, status="queued")
 
 
-@router.get("/{job_id}", response_model=JobStatusResponse)
-def get_job(
+@router.get("/{job_id}", response_model=SiltJobStatusResponse)
+def get_silt_job(
     job_id: uuid.UUID,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
-) -> JobStatusResponse:
-    job = JobService(db).get_owned(job_id=job_id, user_id=user_id)
+) -> SiltJobStatusResponse:
+    job = SiltJobService(db).get_owned(job_id=job_id, user_id=user_id)
     error = None
     if job.status == "failed":
         error = ApiError(code=job.error_code or ErrorCode.INTERNAL_ERROR, message=job.error_message or "Job failed.")
-    return JobStatusResponse(job_id=job.id, status=job.status, stage=job.stage, progress=job.progress, error=error)
+    return SiltJobStatusResponse(job_id=job.id, status=job.status, stage=job.stage, progress=job.progress, error=error)
 
 
-@router.get("/{job_id}/result", response_model=JobResult)
-def get_job_result(
+@router.get("/{job_id}/result", response_model=SiltJobResult)
+def get_silt_job_result(
     job_id: uuid.UUID,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
-) -> JobResult:
-    job = JobService(db).get_owned(job_id=job_id, user_id=user_id)
+) -> SiltJobResult:
+    job = SiltJobService(db).get_owned(job_id=job_id, user_id=user_id)
     if job.status != "completed":
         raise ApiException(ErrorCode.JOB_NOT_COMPLETE, "Job has not completed yet.")
 
-    # Signed URLs are generated only after the JWT + ownership check above
-    # has already happened (PRD §7).
-    artifacts = JobArtifacts(
+    artifacts = SiltJobArtifacts(
         texture_url=storage.create_signed_url(job.texture_path),
-        heightmap_url=storage.create_signed_url(job.heightmap_path),
-        heightmap_16bit_url=storage.create_signed_url(job.heightmap_16bit_path) if job.heightmap_16bit_path else None,
-        confidence_map_url=storage.create_signed_url(job.confidence_map_path) if job.confidence_map_path else None,
-        dsm_url=storage.create_signed_url(job.dsm_path) if job.dsm_path else None,
+        heatmap_url=storage.create_signed_url(job.heatmap_path),
     )
+    metadata = job.job_metadata or {}
 
-    return JobResult(
+    return SiltJobResult(
         job_id=job.id,
         output_type=job.output_type,
         artifacts=artifacts,
-        metadata=JobMetadata(**job.job_metadata),
-        metrics=JobMetrics(**job.metrics) if job.metrics else None,
+        predicted_ssc_mg_l=job.predicted_ssc_mg_l,
+        dredging_level=metadata.get("dredging_level", "low"),
+        dredging_label=metadata.get("dredging_label", ""),
+        cross_section_profile=metadata.get("cross_section_profile", []),
         warnings=job.warnings or [],
     )
 
 
-@router.get("", response_model=JobListResponse)
-def list_jobs(
+@router.get("", response_model=SiltJobListResponse)
+def list_silt_jobs(
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
-) -> JobListResponse:
-    owned = JobService(db).list_for_user(user_id=user_id)
-    return JobListResponse(
+) -> SiltJobListResponse:
+    owned = SiltJobService(db).list_for_user(user_id=user_id)
+    return SiltJobListResponse(
         jobs=[
-            JobSummary(
+            SiltJobSummary(
                 job_id=j.id,
                 status=j.status,
                 output_type=j.output_type,
@@ -139,12 +135,10 @@ def list_jobs(
 
 
 @router.delete("/{job_id}", status_code=204)
-def delete_job(
+def delete_silt_job(
     job_id: uuid.UUID,
     user_id: str = Depends(get_current_user_id),
     db: Session = Depends(get_db),
 ) -> None:
-    _job, compare_ids = JobService(db).delete(job_id=job_id, user_id=user_id)
+    SiltJobService(db).delete(job_id=job_id, user_id=user_id)
     storage.delete_job_artifacts(user_id, str(job_id))
-    for compare_id in compare_ids:
-        storage.delete_compare_artifacts(user_id, str(compare_id))

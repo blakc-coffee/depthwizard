@@ -60,8 +60,20 @@ ml/data/cache/
 # Raw dataset downloads staged at repo root before being moved into /data/
 /Train-Track1-RGB.zip
 /Train-Track1-Truth.zip
+/SWORD_v17b_shp.zip
+/ml/data/river_silt_raw/sword/
 /Track1-RGB/
 /Track1-Truth/
 
 # Manual-review diagnostic imagery (regenerable from real patches, not for git)
 /review_samples/
+
+# River silt use case: raw SSC matchup CSVs (multi-GB, external datasets),
+# staged at repo root before being sorted into ml/data/river_silt_raw/.
+/*.csv
+/ml/data/river_silt_raw/
+
+# GCP service-account key (Earth Engine credential) — root-only, never
+# committed regardless of filename; nested json (package.json, tsconfig,
+# manifest.json etc.) is untouched.
+/*.json

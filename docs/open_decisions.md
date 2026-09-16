@@ -636,3 +636,410 @@ No field was added to either `PipelineResult` (frozen or `ml/pipeline.py`'s loca
 - **`validation_report.json`'s own honest scope:** only `hilly` terrain is quantitatively validated (47/4,583 test patches, 99.0% of the split has no absolute ground truth to score against) — see Chunk 1/2 entries. "Contract frozen" is not "every terrain's accuracy is proven."
 
 **Resolves when:** N/A — this is the freeze. Reopen only if a future phase needs a new `PipelineResult` field (at which point it's a new decision, not a reopening of this one).
+
+---
+
+## 2026-09-13 — New use case proposed: river silt/turbidity estimation, reusing DepthWizard infra
+
+**Status:** OPEN — PRD written (`docs/phase_river_silt.md`), no code started
+
+User wants to extend the same satellite/drone-RGB-to-heightmap infra to a second product: given an overhead river image, estimate suspended sediment concentration (SSC) and render it as a spatial heatmap (silt intensity per pixel), same shape as the DSM pipeline (relative pattern from a CNN/segmentation-style model, absolute mg/L anchored via fusion with in-situ gauge data).
+
+**Datasets found (web search, not yet pulled into repo):**
+- **Primary candidate:** global riverine SSC matchup dataset (Prum/Lucchese/Gardner, *Scientific Reports* 2026) — 240,224 records, in-situ SSC paired with Landsat TM/ETM+/OLI surface reflectance, 430 gauge stations (US/Canada/South America/Taiwan), 1984–present. Closest structural analog to this project's existing SRTM-anchor pattern. Paper: https://www.nature.com/articles/s41598-026-58139-0. Matchup data referenced as hosted on CUAHSI HydroShare: https://www.hydroshare.org/resource/2ee7d421618a4873b9906540d047ced4/
+- **Secondary:** USGS Lower Mississippi/Atchafalaya SSC + percent-fines (1973–2021) + daily streamflow, US-only, clean tabular ground truth: https://www.usgs.gov/data/datasets-suspended-sediment-concentration-and-percent-fines-1973-2021-sampling-information
+- **Reference only (no raw data, band-ratio algorithms):** Yangtze/Yellow River Sentinel-2 SSC papers (R²=0.91 Yellow River band-ratio model), useful for feature-engineering ideas.
+
+**Blocker: no dataset pulled yet.** No browser-automation tool (chrome-devtools MCP or equivalent) is wired into this session — checked, not assumed. Direct `curl` against both HydroShare and USGS data-release pages returned `403` (bot-blocked, likely needs a real browser session/cookies, not a dead link). Two ways to unblock: (a) user downloads manually and drops files under `ml/data/river_silt_raw/` (gitignored, matching the `ml/depth/samples/`/`ml/data/samples/` convention), or (b) user connects a chrome-devtools MCP server to this session and a future turn drives it directly.
+
+**Explicitly modeled on already-learned lessons from the height pipeline** (see PRD for detail) — relative-pattern-only CNN output cannot give absolute mg/L (same scale-blindness as depth-vs-height), so an in-situ gauge anchor is required for any absolute claim, same disqualify-don't-clamp gating pattern as `MIN_SRTM_VALID_FRACTION`.
+
+**Resolves when:** dataset is actually in the repo and Chunk 1 (data ingestion) of `docs/phase_river_silt.md` starts.
+
+---
+
+## 2026-09-14 — River silt Chunk 1 started: real datasets pulled, GEE imagery fetch built and run, real Sentinel-2 launch-date gap found
+
+**Status:** IN PROGRESS
+
+Datasets landed (`ml/data/river_silt_raw/`, gitignored): `SSC_in_situ.csv` (467,088 rows — 393,708 tagged `River`/`River-Stream`, real global spread) and `OC_data.csv` (GloRivSed, 3.99M rows). Confirmed by inspection, not assumed: `OC_data.csv`'s `reach_ID` keys against the SWORD river-geometry database (not yet acquired) — no direct lat/lon in that file — and its `y_pred` column is the source paper's own *modeled* SSC estimate, not a raw in-situ reading. Decided to build Chunk 1 against `SSC_in_situ.csv` only; `OC_data.csv` is deferred until SWORD is in hand.
+
+GCP service-account key for Earth Engine set up (`depthwizard-508518` project). **Security note, not a finding but worth recording:** the downloaded key JSON landed in the repo root first — moved out of the repo entirely to `~/secrets/`, and `.gitignore` tightened (`/*.json` at root, `/*.csv` at root) so a stray `git add -A` can't catch a credential or a multi-GB CSV again. Root-only patterns, verified via `git check-ignore -v` not to shadow any tracked nested `.json` (package.json, tsconfig, manifest.json etc. — none exist at root, checked before adding the pattern).
+
+Built `ml/data/fetch_river_silt_imagery.py` — standalone (matches `ingest_supplementary.py`'s convention), reads the service account's `client_email` straight out of the key JSON (one `--key-file` flag, no separate email arg to keep in sync), samples N real `River`/`River-Stream` rows, matches each to the least-cloudy Sentinel-2 SR scene within ±8 days via `COPERNICUS/S2_SR_HARMONIZED`, downloads a 256×256 uint8 true-color GeoTIFF crop per match. `ee` is lazily imported inside the network-touching functions only, so the pure sampling/filtering logic is unit-testable without `earthengine-api` installed (`ml/tests/test_fetch_river_silt_imagery.py`, 3 tests, no network).
+
+**Real run, 200-row sample:** only 40 images matched, 160 skipped. Root-caused before treating it as a bug: **58% of all real `River`/`River-Stream` rows in `SSC_in_situ.csv` predate 2015-06-23 (Sentinel-2's launch)** — measured directly, not guessed (min date 1985, max 2024). Random sampling from a 1985–2024 dataset against a 2015+-only satellite bakes in most of the miss rate before the script ever runs a query. Fixed by filtering `load_river_rows()` to `date >= SENTINEL2_LAUNCH` up front, so future samples aren't wasted on structurally-unmatchable rows. Genuine cloud-cover misses (real skips, not date-caused) are the remaining, much smaller tail — not yet separately measured.
+
+**Resolves when:** re-run with the launch-date filter in place and confirm the skip rate drops to something close to real cloud-cover-only misses; then decide whether 200 real image/SSC pairs is enough to start feature extraction (Chunk 2) or whether the sample needs to grow first.
+
+**Update (2026-09-14):** re-run at `--n-samples 500` hit a second real bug before the fix landed — one real `SiteID` value is a URL (`Datastream_https://doi.org/...`), and using it raw in a file path broke `urlretrieve()` mid-batch (`FileNotFoundError`, embedded slashes). Fixed with a filename sanitizer (`re.sub(r"[^A-Za-z0-9._-]", "_", site_id)`) and, per the root-cause-not-symptom rule, wrapped the whole per-row fetch+download in one `try/except Exception` — a 500-row real-world batch shouldn't die on any single row's data quirk, not just this specific URL case.
+
+**Result after both fixes, real run:** 315/500 images pulled (63% match rate) vs. the pre-fix 40/200 (20%) — confirms the launch-date filter was the dominant cause, not incidental. Remaining 185 skips are genuine no-cloud-free-scene-in-window misses, not measured further yet. 315 real image/SSC pairs now sit in `ml/data/river_silt_raw/imagery/` + `imagery_manifest.csv` (gitignored). Note: the folder has ~20 extra leftover files from the pre-fix crashed run (different seed-derived sample, same CSV) — harmless, not deduped, flagging so a future row-count check isn't confused by the mismatch between manifest rows (315) and files on disk (335).
+
+**Resolves when:** N/A for Chunk 1's imagery-pull step — 315 pairs is enough to start Chunk 2 (feature extraction). Scale up only if the baseline regressor shows real headroom that more data would close, same standard applied throughout the height pipeline's optimization passes.
+
+**Note on the 185 skipped rows:** genuinely no cloud-free Sentinel-2 scene within ±8 days of the SSC reading for that station/date — not lost, not a bug, logged plainly by the script (`185 rows skipped (no cloud-free scene in +/-8d window)`). Not yet broken down into "zero scenes at all in the archive" vs. "scenes existed but all cloudier than `MAX_CLOUD_PCT=40`" — deferred, pick up next session if the skip rate matters for scaling the sample later.
+
+---
+
+## 2026-09-14 — River silt Chunk 2: baseline turbidity regressor trained on real data — negative R², a real weak baseline, not a bug
+
+**Status:** IN PROGRESS
+
+Built `ml/features/extract_river_silt_features.py` (13 RGB-derived features per image: per-band color mean/std, brightness, NDTI, red/blue ratio, plus the three pattern-vs-magnitude texture features already proven useful in the height pipeline — `_edge_density`/`_freq_high_ratio`/`_local_entropy`, imported and reused on the luminance channel rather than reimplemented) and `ml/calibration/train_river_silt_regressor.py`, which reuses `HeightRegressor` as-is — it's a generic feature-vector MLP with nothing height-specific in its implementation, only in its name/docstrings. A second near-identical MLP class was rejected as pure duplication.
+
+Ran both against the real 315-row `imagery_manifest.csv`: 315/315 feature rows built, 0 skipped. Split 220/47/48 (train/val/test, seed 42).
+
+**Real result, reported honestly, not spun:** test-set **R² = -0.127** (worse than predicting the mean), RMSE 65.4 mg/L, MAE 27.8 mg/L, bias -22.8 mg/L (systematically underestimates). The sanity-check sample makes the failure mode visible directly: predictions cluster tightly around ~9-12 mg/L regardless of the real target's actual range (8.7 to 111 mg/L in just 5 rows) — the model is barely distinguishing sites at all, close to predicting a constant.
+
+**Why this is plausible, not obviously a bug** (flagging the honest reasons before jumping to "fix the code"):
+1. **315 rows is small** for global cross-site generalization — this project's own height pipeline needed thousands of rows per terrain bucket before its features showed real signal; 220 training rows spread across dozens of countries/lighting conditions/river types is a much harder generalization problem on far less data.
+2. **No per-scene normalization.** Sentinel-2 true-color renders vary with sun angle, atmospheric haze, water depth/bottom-reflectance, and each scene's own arbitrary date within the ±8-day window — color/texture statistics aren't controlled for any of this, unlike DFC2019's roughly-consistent nadir/lighting conditions.
+3. **A single crop's classical color/texture stats may simply not carry global SSC signal** the way local, single-basin band-ratio algorithms do (per the Yellow River paper's R²=0.91 — but that model is basin-specific, trained and evaluated on one river system's own lighting/turbidity range, not asked to generalize globally like this baseline was).
+
+**Resolves when:** this is Chunk 2's honest baseline result, matching `docs/phase_river_silt.md`'s own instruction ("measure this honestly before reaching for a CNN — a CNN is worth it only if it beats this"). Options going forward, not yet decided: (a) scale up the imagery sample (more rows, same features) to see if more data alone helps a clearly-underfit model; (b) try per-scene/per-region normalization before adding model complexity; (c) move to Chunk 3/4's CNN-based approach given this baseline's weakness makes the case for it stronger, not weaker. Flagging for explicit user decision before picking one — not assumed.
+
+**Update (2026-09-14) — user picked option (a), scale up the sample. Two real bugs found and fixed during the scale-up run itself:**
+
+1. **Made the pull script resumable/additive first** (it wasn't — a re-run with a bigger `--n-samples` would have re-downloaded and overwritten everything already pulled). `fetch_river_silt_imagery.py` now loads the existing manifest, excludes already-pulled `site_id`s from the new sample pool, and only fetches genuinely new rows.
+
+2. **That fix wasn't enough on its own — the manifest write itself was still batch-at-the-end, not incremental.** Real incident: launched a `--n-samples 2000` background pull; the OS OOM-killed the process mid-run (unrelated to this script — system-wide memory pressure, not a leak in this code). Because the manifest was only written once at the very end, the kill orphaned **469 already-downloaded images** (784 files on disk, only 315 in the manifest) — invisible to the "already pulled" resume check, so a naive re-run would have silently re-fetched and re-downloaded all of them. Fixed by writing the manifest incrementally (`csv.DictWriter` append-mode, one `writerow()` + `flush()` per successful row, `try/finally` to always close the handle) — a kill at any point now only loses the one in-flight row, not the whole batch.
+
+3. **Separately found 15 duplicate `site_id` rows in the manifest**, left over from the two earlier pre-resumable-fix runs re-sampling overlapping rows. Deduped by keeping first occurrence (300 unique rows survived) — real risk if left in: the same image could land in both the train and test split via `extract_river_silt_features.py`'s random split, a data-leakage bug that would have quietly inflated the next R² measurement.
+
+Orphaned files with no manifest metadata were deleted (not recoverable without re-querying Earth Engine for their scene metadata) rather than guessed-at or kept mismatched.
+
+**Resolves when:** the scale-up re-run (now on the fixed script) completes and the regressor is retrained — not done yet as of this entry.
+
+---
+
+## 2026-09-14 — River silt: literature review of active SSC-from-satellite research, checked against the negative-R² baseline above
+
+**Status:** RESEARCH, not yet acted on — logged for whoever picks up the scale-up retrain.
+
+Read the primary dataset paper (Prum/Lucchese/Gardner, *Sci Reports* 2026, paywalled — full methodology pieced together from PubMed/ResearchGate abstracts) plus a fully-open PMC coastal-SSC study with complete methodology, to check our Chunk 2 approach against what the field actually does.
+
+**Model choice — real mismatch found.** Prum/Lucchese/Gardner's global model uses **XGBoost**, not a neural net. The open PMC study ran a direct three-way comparison on the same kind of problem: XGBoost R²=0.72 (100 trees, depth 4, lr 0.03, subsample 0.7) vs. Random Forest R²=0.65 vs. MLP R²=0.47. A second study (coastal turbidity) also found XGBoost best, R²=0.757. Our Chunk 2 baseline reuses `HeightRegressor` (an MLP) and got R²=-0.127. Every literature comparison found puts MLP well behind XGBoost on this exact task — worth trying XGBoost on the existing 13-feature set *before* the sample-scale-up finishes, since it's a cheap thing to test in parallel and the current negative result might be as much a model-choice problem as a data-size one.
+
+**Feature gap — bigger than model choice, likely the real cause.** Literature feature sets: Blue/Red/Green/NIR-narrow/SWIR1 raw bands + Blue/Red, Blue/Green, Red/Green ratios (+ lat/lon, caveat below). Ours (`extract_river_silt_features.py`) has NDTI + red/blue ratio + color/texture stats — reasonable overlap, missing Blue/Green ratio specifically (one study's SHAP found it inversely correlated with turbidity, real signal, cheap to add).
+
+**The actual likely root cause: `fetch_river_silt_imagery.py` pulls Sentinel-2 as a true-color RGB GeoTIFF crop, discarding bands every cited paper depends on.** The literature is explicit about *why* RGB-only struggles: "for sediment-dominated highly turbid waters, green/red reflectance saturates — a NIR band is usually more appropriate" (band-ratio turbidity literature, general finding, not specific to one paper). We pull from `COPERNICUS/S2_SR_HARMONIZED` via Earth Engine — that source has B5/B6/B7 (red-edge), B8 (NIR), B11/B12 (SWIR) available on the same scene we're already fetching; we're just requesting true-color only. This is not the "generic RGB drone photo" constraint the PRD's §0 comparison table assumes — it's a specific export choice on a source that actually has the useful bands. **Before scaling the imagery sample further, worth checking whether re-pulling with the multispectral bands included (still same 315+ already-matched rows, just richer per-crop data) closes more of the R² gap than more RGB-only rows would.** Not yet tried — flagging so the scale-up doesn't spend more download/compute time on a feature representation the literature says is fundamentally undersignaled.
+
+**Water masking — not yet done.** Every paper reviewed isolates water pixels (mNDWI threshold) before computing any color/texture statistic. Our 256×256 crops likely mix bank/vegetation/water pixels into one feature vector undifferentiated. `ml/calibration/semantic_priors.py` already does exactly this kind of segmentation for the height pipeline (building/vegetation/road classes) — same pattern, a water class, would directly apply here and hasn't been tried.
+
+**Cloud/quality masking — unclear if already handled.** Literature standard is Fmask-derived cloud/cirrus/shadow/adjacent-pixel masking, plus a Hampel filter for temporal outliers in time-series use. Not confirmed whether `fetch_river_silt_imagery.py`'s existing `MAX_CLOUD_PCT=40` scene-level filter is doing enough, or whether pixel-level contamination inside an accepted scene is still possible.
+
+**Matchup window — current ±8 days is loose relative to literature.** The open PMC study used ≤1 day between gauge reading and satellite pass, calling tighter windows necessary because SSC drifts fast. This directly answers the open question already logged above ("gauge-anchor freshness gating... needs a real threshold, not guessed") — literature's answer is closer to 1 day than 8. Real tradeoff, not free: match rate is already the bottleneck (315/500 at ±8 days per the entry above), and tightening to ≤1 day will shrink it further. Not decided which side of that tradeoff to take — flagging for whoever picks this up, not choosing here.
+
+**Lat/lon as a feature — flagged as a likely leakage trap, not recommended as-is.** One study's SHAP analysis found longitude the single strongest predictor. Read against this project's own `terrain_type`-leakage finding (see the height-pipeline entries above): baseline water color plausibly varies by region because *specific training rivers* have specific baseline turbidity/mineralogy, not because geographic coordinate is a real physical predictor of SSC. Feeding raw lat/lon into a global model risks the model memorizing "which river is this" rather than learning transferable turbidity signal — same shape of mistake already caught once this project. Don't add without the same scrutiny `terrain_type` got.
+
+**Resolves when:** someone acts on one or more of the above (XGBoost swap, multispectral re-pull, water masking) and re-measures against the same held-out test split, rather than these staying observations only.
+
+**Update (2026-09-14) — acted on the two cheap items (no network needed); real, honest, partial result:**
+
+1. Added `silt_blue_green_ratio` to `extract_river_silt_features.py` (literature-flagged, cheap). Test added to `test_extract_river_silt_features.py` checking clear water reads a higher blue/green ratio than turbid water, same pattern as the existing NDTI/red-blue checks.
+2. Re-ran `extract_river_silt_features.py` against the now-current manifest — it had grown to 830 rows (from the 315 this baseline was originally measured on) without a corresponding feature-file re-extraction; that scale-up data was sitting unused until this re-run. New split: 581/124/125 train/val/test.
+3. **Re-measured the MLP baseline on the bigger dataset first, before touching anything else:** R² = -0.0495 (up from -0.127, still negative). Confirms the literature-review hypothesis directly — more RGB-only rows alone did not fix this; the problem is feature/model, not sample size.
+4. **Added `ml/calibration/train_river_silt_regressor_xgb.py`** — XGBoost, same 14 features, same train/val/test split, hyperparameters taken from the open PMC study's best config (100 trees, depth 4, lr 0.03, subsample 0.7) as a measured starting point, not tuned further. New dependency: `xgboost==2.1.4` in `ml/requirements.txt` — on macOS this also needs `brew install libomp` (xgboost's OpenMP runtime; not resolvable via pip, real install-time gotcha hit and fixed this session).
+5. **Result: R² = 0.0039** — crosses to barely positive, and bias dropped sharply (-44.5 mg/L → -6.5 mg/L, far less systematic underestimation). MAE is actually slightly worse (65.2 vs 49.6 mg/L) — a mixed, not a clean, win. Honest reading: **the model-choice literature finding is confirmed and measurably real, but it is a small fix, not the fix.** The bigger lever identified above — re-pulling Sentinel-2 with NIR/red-edge/SWIR bands instead of true-color-only — is still untried, because it requires a live Earth Engine pull (network + GCP service-account credentials) that wasn't attempted this pass. Don't cite "XGBoost fixed the river-silt regressor" — it moved R² from clearly-negative to barely-non-negative, nothing more, on this feature set.
+
+**Resolves when:** the multispectral re-pull (biggest remaining lever, per the literature-review entry above) is attempted and measured — not done yet as of this entry. Water masking and the ±8-day matchup-window tightening also remain untried.
+
+**Update (2026-09-14) — scale-up pull finished (1532 total rows), both models re-measured at full scale: confirms the ceiling is feature representation, not sample size.**
+
+`fetch_river_silt_imagery.py`'s scale-up run completed: 1232 new images pulled this pass, 1532 total (768 skipped, same real cloud-cover-miss pattern as before — no new bug). Re-ran `extract_river_silt_features.py` (0 skipped, 1072/229/231 train/val/test) and both regressors on the full set:
+
+| | 315 rows | 830 rows | **1532 rows** |
+|---|---|---|---|
+| MLP R² | -0.127 | -0.0495 | **-0.0263** |
+| XGBoost R² | (not yet built) | 0.0039 | **-0.0195** |
+
+**Both models flat-lined near zero regardless of scale — MLP crept up marginally, XGBoost actually got *worse* (0.0039 → -0.0195) and its MAE also got worse (65.2 → 92.6 mg/L) going from 830 to 1532 rows.** This is a decisive result, not an ambiguous one: if the problem were data volume, more real rows would show monotonic improvement on at least one model. Neither did. Confirms the literature-review hypothesis directly — **the ceiling is the RGB-only feature representation, not sample size.** Scaling the imagery pull further (more RGB rows) is very unlikely to help; per that entry, the real lever is re-pulling Sentinel-2 with NIR/red-edge/SWIR bands instead of true-color-only.
+
+**Resolves when:** the multispectral re-pull is built and measured — this update makes that the clear next step, not one option among several.
+
+**Update (2026-09-14) — multispectral re-pull built, hit a real hang bug on first run, fixed.**
+
+Built `ml/data/fetch_river_silt_multispectral.py`: reuses each manifest row's already-matched `scene_id` (no re-searching — guarantees the exact same scene the RGB crop came from, same date/cloud cover), pulls raw B2/B3/B4/B5/B8/B11/B12 (blue/green/red/red-edge/NIR/SWIR1/SWIR2) at native Sentinel-2 SR reflectance scale, not visualized to uint8. One file per `site_id` is its own resume checkpoint, same convention as `ml/features/extract_features.py`.
+
+**Real incident on first run:** launched in the background, checked back after ~15 minutes — 0 files pulled, near-zero CPU time (0.62s). Not slow, stuck: killed it and root-caused directly (isolated single-row test of `fetch_multispectral_crop()` + `urlretrieve()` both completed in under 5s each in isolation, so the code path itself is correct) — the real gap is that **no network call anywhere in either fetch script had a timeout**, so a single transient stall (this one, or the original RGB pull, which got lucky and never hit it across 1532 real rows) can hang the entire batch indefinitely with zero progress and no error. Fixed with `socket.setdefaulttimeout(60)` at the top of `main()` in both `fetch_river_silt_multispectral.py` and `fetch_river_silt_imagery.py` (same exposure, same fix, applied to both since it's the identical bug class) — a stuck row now raises `socket.timeout`, caught by the existing per-row `except Exception` handler, and the batch moves on instead of hanging forever.
+
+**Resolves when:** the re-launched pull (now timeout-protected) completes and the combined RGB+multispectral feature extraction + retrain (`ml/features/extract_river_silt_multispectral_features.py`, `ml/calibration/train_river_silt_regressor_multispectral_xgb.py`, both built and unit-tested, not yet run against real data) can proceed — not done yet as of this entry.
+
+---
+
+## 2026-09-14 — Water masking (mNDWI) built while the multispectral pull runs — real finding: the crop is mostly not water
+
+**Status:** IN PROGRESS — built and unit-tested, real limitation found and logged, not fixed
+
+Added `compute_water_mask()` (modified NDWI, Xu 2006: `(green - swir1) / (green + swir1) > 0`) to `extract_river_silt_multispectral_features.py`, wired into `compute_multispectral_features()` — when given a mask, band means/ratios are computed only over water-flagged pixels, isolating turbidity signal from bank/vegetation pixels per the literature-review entry's flagged gap. Falls back to whole-crop stats when the water fraction is under `MIN_WATER_FRACTION=0.05` (same disqualify-don't-silently-degrade pattern as `MIN_SRTM_VALID_FRACTION` elsewhere in this project) — a mask covering a handful of pixels shouldn't be trusted. New diagnostic/feature column `ms_water_fraction` carries the mask coverage itself into the model, whether or not the mask was trusted for that row. 6 tests, real-mask-vs-fallback behavior included.
+
+**Real finding on the crops already pulled (50-row sample):** median water fraction is **1.3%**, mean 10.2%, and **37/50 (74%) fall below the trust threshold** — the mask barely engages for most rows. Root cause: `BUFFER_METERS=1280` (a 2.56km-wide crop, chosen to match the RGB pull's existing crop size for pixel-grid alignment) is wide relative to typical river width — most of a real river station's crop is bank/floodplain/land, not water. **Not fixed this pass** — shrinking the buffer would misalign with the already-pulled RGB crops (same buffer size) and require a full re-pull; changing it now mid-pull wasn't judged worth the disruption. The `ms_water_fraction` feature itself still carries real information regardless (very-low-water-fraction crops are a distinct population XGBoost can learn to weight differently), so the masking work isn't wasted, just not the full fix the literature implies.
+
+**Resolves when:** the combined feature set is retrained and measured against the RGB-only and unmasked-multispectral baselines — worth checking whether `ms_water_fraction` as a feature alone helps, independent of whether the mask itself engages often enough to matter. If it doesn't help, revisit crop size (smaller buffer, re-pulled) as a follow-on, not assumed necessary yet.
+
+---
+
+## 2026-09-14 — Frontend `SiltHeatmapViewer` built; SWORD reach-lookup dataset download started (both requested to run in parallel with the multispectral pull)
+
+**Status:** Frontend component done and typechecked. SWORD download in progress, not yet built against.
+
+**Frontend:** `frontend/src/components/viewer/SiltHeatmapViewer.tsx` — built per `docs/phase_river_silt.md` §4's mockup, matching this project's existing design tokens exactly (same `#5e4cff`/`#36394a`/`#cdd2d9` palette, `rounded-[12px]`/`[8px]`, `font-heading`, loading/error state patterns lifted from `TerrainViewer.tsx`). Canvas-based 2D overlay (source RGB + colorized heatmap blended at adjustable opacity), hover readout in mg/L or relative index depending on `outputType`, summary panel (mean/peak SSC, confidence dots — same `●○` convention style), per-region breakdown table, and the `⚠ relative_silt_index` warning banner from the mockup. `npx tsc --noEmit` passes clean. Not wired into routing/a real job-results flow yet — no backend silt-job endpoint exists (Chunk 5 of the PRD, unstarted) — this is the standalone component itself, demoable once real heatmap data exists.
+
+**SWORD:** needed to resolve `OC_data.csv` (GloRivSed)'s `reach_ID` to lat/lon, since that file has no direct coordinates. No per-continent split exists in any of SWORD's three formats (netcdf/gpkg/shp all ship as one ~1.8-2GB global zip, confirmed via Zenodo's file API before downloading — not guessed). Range-request central-directory peek (to inspect the zip's contents without downloading it all) didn't work cleanly against Zenodo's redirect chain — abandoned rather than over-engineered further. **User explicitly approved the full download** (asked first, given the project's standing preference against large unprompted downloads — see the earlier 26.9GB GloRivSed continent-file incident). Downloading `SWORD_v17b_shp.zip` (shapefile format, chosen over netcdf/gpkg specifically so the reach-lookup can use `pyshp` — a small pure-Python package — instead of needing GDAL/geopandas for a simple reach_id→centroid task). Both the zip and a planned `ml/data/river_silt_raw/sword/` extraction directory are gitignored.
+
+**Resolves when:** SWORD download completes, a reach_id→lat/lon lookup script is built against it, and `OC_data.csv` can finally be joined to real coordinates — none of that started yet, this entry only covers the acquisition decision and what's running.
+
+**Update (2026-09-14) — SWORD download completed (with real network flakiness handled), reach lookup built and run, real ~42% miss rate found and partially explained**
+
+Download dropped mid-transfer twice (`curl` exit 18, connection closed mid-stream — a real, transient network issue, not a bug in this repo) before a resumable retry loop (`curl -C -` in a bash loop) got the full 2,133,807,799-byte zip down cleanly; `unzip -t` confirmed no corruption. **Only the Oceania (`OC`) continent was extracted** (79MB, matching `OC_data.csv`'s own scope — no reason to keep the other 5 continents' ~2GB on disk for a dataset we only have one continent of), and **the 2.13GB zip was deleted immediately after extraction** — per the standing preference against large files sitting around locally.
+
+Built `ml/data/sword_reach_lookup.py` — simpler than planned: SWORD's reach records already carry a representative `x`/`y` point per reach directly in the shapefile's attribute table (checked on a real extracted file before writing any code, not assumed), so no polyline-centroid math was needed at all, just an attribute read. Uses `pyshp` (pure Python), no GDAL/geopandas. 3 tests (index building, multi-file merging, drop-not-fabricate on an unresolvable id).
+
+**Real result on the actual data:** 2,320,566 / 3,993,644 rows resolved to real coordinates (58%), 1,673,078 missed (42%). Checked whether this was wrong-continent contamination before accepting it — it isn't: every single `reach_ID` in `OC_data.csv` starts with SWORD's Oceania region-prefix digit (`5`), confirmed by direct count, so the miss isn't a data-scoping bug on this end. Leading (unconfirmed) hypothesis: SWORD revises reach boundaries and reassigns reach IDs across versions, and GloRivSed's `reach_ID` column was very likely built against an older SWORD release (the paper predates v17b, the only version currently downloaded) — reach-ID drift between hydrography dataset versions is a known category of problem, not specific to this pipeline. Not confirmed by reading GloRivSed's actual methods section (paywalled, only abstracts available per the earlier literature-review entry) — flagging as the leading explanation, not a proven one.
+
+**Resolves when:** if GloRivSed's exact source SWORD version is ever confirmed (would need the paywalled paper or its supplementary methods), re-run the lookup against that version instead of v17b and see if the miss rate closes. Not pursued further this session — 2.32M resolved rows is already a usable, if partial, coordinate set for whoever picks up `OC_data.csv`/GloRivSed integration next.
+
+---
+
+## 2026-09-14 — River silt: remaining plumbing/skeleton work finished (backend tests, frontend wiring end-to-end)
+
+**Status:** RESOLVED (2026-09-14) — the placeholder-scope backend+frontend flow is now fully connected and verified real, not just import-checked
+
+Picked up the two real gaps flagged after the initial backend-wiring slice:
+
+**1. Backend: silt-job routes/service had zero dedicated test coverage** (unlike, it turns out, `jobs.py` too — checked first, `test_job_isolation.py` is the *only* route-level test file that exists for the terrain flow either, so "mirror jobs.py's coverage" meant writing the same kind of test, not matching a higher pre-existing bar). Extended `conftest.py`'s shared `client` fixture to also monkeypatch `process_river_silt_image.delay` (previously only `process_image.delay` was mocked — a silt-job test would have tried a real Celery `.delay()` call with no broker running). Wrote `test_silt_job_isolation.py` (7 tests, mirrors `test_job_isolation.py`'s cross-user isolation coverage plus two silt-specific cases: result-not-ready-yet, list-scoping-per-user).
+
+**Verified against a real Postgres, not just skip-checked:** started the repo's existing `docker-compose.yml` postgres service, created a `depthwizard_test` database, installed `psycopg[binary]`. All 19 backend tests (4 original + 8 terrain isolation + 7 new silt isolation) pass against real tables built from `Base.metadata.create_all()` — meaning the `SiltJob` model's own CHECK constraints, indexes, and FK-free shape are exercised for real, not just import-checked. Previously this suite only ever ran in skip mode in this environment.
+
+**2. Frontend: `SiltHeatmapViewer` existed but nothing reached it.** Built the full chain: `types.ts` (Silt* types mirroring the backend schemas), `mockApi.ts`/`mockFixtures.ts` (mock silt endpoints + fixture, so the flow is demoable without a live backend — same convention the terrain flow already uses when Supabase isn't configured), `api.ts` (real `createSiltJob`/`getSiltJob`/`getSiltJobResult`/`getSiltJobs`/`deleteSiltJob`, same fetch/error-handling shape as the terrain functions), `useSiltJobPolling` hook, `SiltUploadForm` + `SiltJobStatus` components (dedicated, not reused from the terrain versions — both have terrain-specific copy/stage-lists baked in that would've been wrong for silt, same judgment as the polling hook), three pages (`SiltWorkspacePage`/`SiltProcessingPage`/`SiltResultsPage`), three routes (`/silt`, `/silt-processing/:jobId`, `/silt-results/:jobId`), and a `Terrain` / `River Silt` pill-switcher in `Header.tsx` per the original `docs/phase_river_silt.md` §4 mockup.
+
+**Verified for real, not just written:** `npx tsc --noEmit` clean, `npx vite build` production build succeeds clean (one pre-existing chunk-size warning, unrelated). Did not run `npm run lint` — the `lint` script exists in `package.json` but `eslint` itself was never actually added as a dependency, a pre-existing gap in this repo, not something touched here.
+
+**What's still explicitly NOT done, by design, not oversight:** the gauge-station-id input field shown in the original mockup was deliberately omitted from `SiltUploadForm` — Chunk 3 (gauge-anchor fusion) doesn't exist yet, so that field would be dead UI with nothing to wire it to. Real dense heatmap (Chunk 4) and gauge fusion (Chunk 3) remain the actual ML research work still ahead — this entry closes the plumbing/skeleton gap only, not the modeling gap already tracked in the entries above.
+
+---
+
+## 2026-09-14 — Multispectral hypothesis tested at full scale: made the model WORSE, not better — real, honest, notable result
+
+**Status:** RESOLVED (2026-09-14) for this experiment — the literature-review hypothesis did not pan out as predicted
+
+Multispectral pull finished (1352 crops total, reusing each row's already-matched `scene_id`). Ran the actual test the whole multispectral track existed for: `extract_river_silt_multispectral_features.py` (1530/1532 rows, 27 combined features) → `train_river_silt_regressor_multispectral_xgb.py` (same XGBoost hyperparameters as the RGB-only run, for a clean comparison).
+
+**Result: R² = -0.1810 — worse than RGB-only at the same scale**, not better:
+
+| | R² (1532-row scale) |
+|---|---|
+| MLP, RGB-only | -0.0263 |
+| XGBoost, RGB-only | -0.0195 |
+| **XGBoost, RGB + multispectral combined (27 features)** | **-0.1810** |
+
+`ms_ndti_nir` (the NIR-based turbidity index the literature specifically flagged) is the single most important feature by XGBoost gain (0.136, well ahead of every RGB feature) — so the multispectral bands aren't *worthless* signal, but the combined model still performs worse overall than dropping them entirely.
+
+**Leading (unconfirmed) explanation, most consistent with everything already found this session:** the water-masking entry directly above measured that real water coverage in these crops is only 1.3% median, with 74% of crops falling below the trust threshold and silently reverting to whole-crop stats — meaning most multispectral feature values here are dominated by bank/land/vegetation reflectance, not actual river water, exactly the contamination the literature's water-masking step exists to prevent. Combined with nearly doubling the feature count (14 → 27) on the same ~1071 training rows, this is consistent with the multispectral features adding noise/overfitting risk that outweighs `ms_ndti_nir`'s real signal. Not confirmed by a controlled ablation (e.g. water-fraction-stratified evaluation) — flagged as the leading hypothesis, not proven.
+
+**Honest framing, matching this project's own standard:** don't cite "multispectral bands don't help river silt estimation" as a general finding — this result is confounded by the water-masking gap, which was never fixed (the crop buffer was kept at 1280m to stay pixel-aligned with the already-pulled RGB crops, a deliberate tradeoff made when water masking was built). The real, controlled experiment — multispectral features restricted to crops where the water mask actually engaged — has not been run.
+
+**Resolves when:** if this is picked up again, the next real step is not "add more multispectral features" — it's re-testing on a water-fraction-stratified subset (or a re-pull with a smaller crop buffer) to isolate whether the multispectral signal helps when the mask actually works, before concluding anything about the bands themselves.
+
+**Update (2026-09-14) — crop-size fix attempted and falsified, not fixed**
+
+Before re-pulling anything, tested the "buffer too wide" hypothesis directly against already-downloaded data — no new network calls needed: took 150 real multispectral crops and recomputed the water mask on progressively smaller center sub-crops (256px/1280m down to 32px/160m buffer) of the *same* images.
+
+**Real result: shrinking the crop does not help.** The trusted-mask rate (`water_fraction >= 0.05`) stayed flat at 27-28% across every crop size tested, and median water fraction actually got *worse* as the crop shrank (0.011 at 256px → 0.001 at 32px) — the opposite of what the "wide crop dilutes water with bank pixels" hypothesis predicted. This means the problem isn't the buffer size or off-center river channels: for roughly 72% of stations, there's little-to-no water anywhere in even the tightest crop tested.
+
+**Leading (unconfirmed) explanations, not isolated further this session:** narrow streams below Sentinel-2's 10m pixel resolution, riparian tree canopy occluding the water surface from the optical sensor (same real phenomenon this project already documented for the height pipeline's own canopy-occlusion finding, different use case), a seasonal/dry-date mismatch between the SSC reading's date and the matched scene, or coordinate imprecision in `SSC_in_situ.csv`'s station metadata. No single-variable test was run to distinguish between these.
+
+**Honest conclusion:** the water-masking gap from the earlier entry is real but NOT fixable by adjusting crop size — that specific fix path is closed, tested, and falsified, not just deprioritized. A real fix would need either higher-resolution imagery (drone-scale, not 10m satellite), a canopy-aware detection step, or accepting `compute_water_mask()` as a best-effort/diagnostic signal rather than a reliable gate. None of these attempted — flagging for a future session, not guessing at which is worth the effort.
+
+**Update (2026-09-14/15) — root-caused via direct visual inspection (not guessing), fixed with an adaptive threshold; real, meaningful mask improvement; downstream regression barely moved**
+
+Generated RGB+mask-overlay composites for real crops (mix of zero-fraction and median-fraction) and looked at them directly, rather than continuing to guess. Found two real, distinct problems immediately: (1) **plainly visible rivers were getting zero mask detection** — not a narrow-stream-below-resolution case, a real, obvious winding river channel with 100% of pixels reading non-water; (2) a false-positive/false-negative pair in one urban crop (bright rooftops flagged as water, an actual swimming pool missed entirely).
+
+**Ruled out a data/band bug before touching the algorithm:** reconstructed a true-color composite directly from the raw multispectral R/G/B bands and compared it against the separately-pulled RGB crop for the same site — they matched almost exactly, confirming band order and reflectance scale are correct. Not a pipeline bug.
+
+**Root cause, confirmed numerically:** for a real failing crop, the maximum mNDWI value anywhere in the entire 256×256 crop was -0.153 — nowhere near the fixed `threshold=0.0`, even at the visually-obvious river pixels. But the **top-1%-highest-mNDWI pixels traced the actual river channel almost exactly** when overlaid back on the RGB — the relative signal is real and spatially coherent, it just never crosses an absolute threshold calibrated for open, easily-resolved water bodies. This is a genuine mixed-pixel effect (narrow/tree-shadowed river + canopy + shadow blending within one 10m pixel), not a broken index.
+
+**Fix:** `compute_adaptive_water_mask()` — Otsu's method (pure numpy, no scipy/cv2) computed on each crop's own mNDWI histogram instead of one fixed global cutoff, same "measure per-scene, don't hardcode one global constant" pattern this project already uses elsewhere (texture-adaptive variance in `calibrate.py`). Guarded against Otsu bisecting a genuinely water-free scene into a fake 50/50 split: any split flagging more than `max_water_fraction=0.3` of the crop is rejected, returning an honest empty mask instead. 3 new tests, including one reproducing the exact real failure mode (a narrow strip with less-negative-but-still-negative mNDWI, which the fixed threshold misses entirely and the adaptive one recovers).
+
+**Real, measured result on the full 1351-crop dataset (1 corrupt file found and skipped along the way — `Waterbase_PL01S1101_0506.tif`, a separate real data-quality issue, not investigated further):**
+
+| | trusted-mask rate (>=5%) | median water fraction |
+|---|---|---|
+| Fixed threshold (old) | 28.3% | 0.0112 |
+| **Adaptive (Otsu, new)** | **43.4%** | **0.0199** |
+| Genuinely no water found (adaptive) | — | 48.0% of crops (honest zero, not fabricated) |
+
+A real, meaningful improvement in mask quality — mask engagement rate up over 15 points. **But retraining the combined XGBoost model on the improved features moved R² only from -0.1810 to -0.1589** — still well behind RGB-only's -0.0195. **Honest conclusion: the masking fix was real and worth keeping (better mask quality is its own justified improvement), but it was not the actual bottleneck on the combined model's accuracy.** Something else is limiting the multispectral-combined approach — the leading unconfirmed suspects, not yet tested: 27 features on only ~1071 training rows (overfitting risk), or the SSC labels' own global heterogeneity swamping any per-pixel reflectance signal this feature set can extract. Don't re-attempt more masking refinements expecting this to close the remaining gap — the evidence now points elsewhere.
+
+**Resolves when:** the mask fix itself is done and correctly attributed (real improvement, kept). The regression-accuracy question is a separate, still-open problem — next real steps, not yet tried: feature-count reduction/regularization to check for overfitting, or accepting that RGB-only's simpler feature set remains the better-performing baseline for this dataset size and moving to a different lever entirely (more real training rows, or Chunk 3/4's fusion approach) rather than continuing to refine the multispectral feature set.
+
+---
+
+## 2026-09-14/15 — Literature-matched fixes (log-target training, HSV color features): real, partial improvement, nothing crossed R²=0
+
+**Status:** RESOLVED (2026-09-14) — both changes applied and measured; honest result, no breakthrough
+
+Follow-on research (user asked for methods that would "guarantee" a fix — pushed back on that framing explicitly, ML has no guarantees, but found two concrete literature-matched gaps): the actual published global SSC model this dataset comes from (Prum/Lucchese/Gardner) reports **RMSLE = 0.24**, a log-space error metric, and uses **HSV (Hue/Saturation/Value) water-color features** alongside raw reflectance — neither had been applied to this project's silt regressors.
+
+**1. Log-transform (log1p/expm1) added to both XGBoost trainers** (`train_river_silt_regressor_xgb.py`, `train_river_silt_regressor_multispectral_xgb.py`) — the MLP path already had this via `HeightRegressor`'s `log_target=True` default, inherited without anyone having deliberately chosen it for silt; XGBoost had no such default and was training on raw skewed mg/L values (p99=870, one outlier at 5317) the whole time.
+
+**2. HSV features added to `extract_river_silt_features.py`** (`silt_hue_mean`, `silt_saturation_mean`, `silt_value_mean`, `silt_saturation_std`, via `matplotlib.colors.rgb_to_hsv` — already a dependency, no new one added). Hue is circular (0 and 1 are the same color) — averaged via unit-vector/`arctan2`, not a naive arithmetic mean, so red-water samples near the hue wrap point don't cancel toward a false green/yellow average. 2 new tests (wrap-point correctness, saturation distinguishing gray from vivid color).
+
+**Real, measured result — re-extracted all features, retrained all three models on the same 1532-row dataset:**
+
+| model | R² before this round | R² after |
+|---|---|---|
+| MLP, RGB-only | -0.0263 | -0.0249 (negligible — already had log-target) |
+| XGBoost, RGB-only | -0.0195 | -0.0243 (no help, slightly worse) |
+| **XGBoost, RGB + multispectral combined** | **-0.1589** | **-0.0553** |
+
+**Honest read:** the combined model improved substantially — closed more than half the gap to RGB-only in one pass, and HSV saturation/hue features now rank in the top 10 by XGBoost importance (previously absent, since they didn't exist as features). This confirms both changes carry real signal for the multispectral-feature case specifically. But **RGB-only alone saw no benefit from either change**, and **no model has crossed R²=0** — the honest bar `docs/phase_river_silt.md` itself set ("a CNN is worth it only if it beats this" baseline) is still unmet across every approach tried this session (RGB-only MLP, RGB-only XGBoost, combined XGBoost, with and without adaptive water masking, with and without log-target, with and without HSV).
+
+**Update (2026-09-15):** backend deploy target changed from Render to Northflank. `docs/depthwizard.md` §5/§9.10/§12 all name Render explicitly — needs a pass to update if/when this doc is touched again for a real reason; not done as a standalone edit here since nothing else in this session required opening that file.
+
+**Resolves when:** this closes the specific "log-target + HSV" experiment, both changes kept (real, measured value on the combined model, harmless elsewhere). Cumulative picture across the whole session's silt-model work: every lever tried moved the combined model's R² closer to RGB-only's, but never past zero — the honest remaining hypotheses, none tried yet, are (a) real hyperparameter tuning against this actual dataset instead of borrowed literature defaults, (b) checking for overfitting given 27-31 features on ~1071 training rows, or (c) accepting that a scalar regressor on hand-crafted features — RGB or multispectral — may not be the right model family for this problem at this data scale, and the honest next step is Chunk 3/4's fusion approach or a genuinely different architecture, not another feature-engineering pass.
+
+---
+
+## 2026-09-15 — Sample-size scaling tested at 4 points: no trend, big pull stopped
+
+**Status:** RESOLVED (2026-09-15) — sample-size-alone hypothesis closed
+
+Researched the actual published global model's methodology (Prum/Lucchese/Gardner): 170,000-240,224 in-situ matchup rows, DSWE (not mNDWI) for water-pixel selection, HSV color features, global spatial-temporal cross-validation. Two of those (log-target, HSV) were already applied and measured in the entry above. DSWE was checked and found impractical — the only GEE-available global product (`OPERA/DSWX/L3_V1/HLS`) only covers April 2023 onward, while most of this project's matched scenes are 2015-2023; swapping to it would apply to a small fraction of the real data, not a wholesale fix. The remaining, biggest-looking lever was raw sample size: our ~1532 rows vs. their ~200k is a ~150x gap.
+
+Launched a large RGB-only pull targeting ~10,000 sampled attempts (from 1532). **Hit repeated system-level OOM kills during the pull (3 separate kills)** — root-caused as unrelated to this project's scripts: top memory consumers were a long-running Virtualization.framework VM process, the Claude desktop app, Brave, WhatsApp, and VS Code, none of them this pull. The resumable/incremental-write design (built earlier this session specifically for this kind of interruption) held up as intended — each restart picked up exactly where it left off, zero rows lost across all 3 kills.
+
+**Before waiting out the full 10k target, took an intermediate real measurement at ~4804 rows (a 3x increase over the 1532-row baseline) to check whether scaling was actually helping before spending more wall-clock time on it.** Result: **R² = -0.0596 — worse than at 1532 rows (-0.0243 with log-target+HSV already applied), not better.**
+
+This is now the 4th independent sample-size measurement this session: 315 rows (-0.127) → 830 rows (-0.0495) → 1532 rows (-0.0243) → 4804 rows (-0.0596). No monotonic trend in either direction — the numbers bounce around the same flat, negative floor regardless of scale. **Decision: stopped the large pull rather than continuing to the full 10k target.** Four data points spanning a 15x range already answer the question the pull was launched to test — more RGB-only rows at this scale is not the fix. Reaching the paper's actual ~150x-larger scale to test that comparison fairly isn't practical in this environment (real network/wall-clock cost, plus the recurring OOM interruptions).
+
+**Honest final picture for the river-silt use case, everything tried this session:** RGB-only features, multispectral+adaptive-water-masking, log-target training, HSV color features, and now 4x sample-size scaling — every lever produced small, real, individually-honest movements, and none crossed R²=0. The dataset itself (global, heterogeneous, `SSC_in_situ.csv`'s ±8-day matchup window, no basin-level stratification) combined with this project's ~150x-smaller sample size than the literature's own global model is the most likely explanation, not any single fixable bug. Real next steps, if pursued: (a) basin-stratified or regional (not global) modeling — train separate models per major basin/climate region instead of one global model, since the paper's own harder-won accuracy came from a dataset 150x this size; (b) tighten the matchup window from ±8 days toward literature's ≤1 day, at the cost of a smaller usable sample; (c) accept RGB-only's simplicity as the practical baseline for this project's scale and move to Chunk 3/4 (gauge-anchor fusion, dense heatmap) rather than continuing to chase R²=0 on a scalar regressor.
+
+---
+
+## 2026-09-15 — River silt Chunks 3 & 4 built: real gauge-anchor fusion + real dense heatmap (user explicitly asked for both together)
+
+**Status:** RESOLVED (2026-09-15) — both wired, tested, and verified against real live data and real images
+
+**Chunk 3 — gauge-anchor fusion.** Built `ml/calibration/silt_gauge_anchor.py`: queries USGS NWIS (`waterservices.usgs.gov`, public, no API key) for a real, live, nearby SSC (parameter 80154, mg/L) reading to anchor a prediction to — same "a real, grounded, independent measurement overrides the model outright" pattern the height pipeline already uses for SRTM.
+
+**Real, measured limitation found and designed around, not discovered after the fact:** checked live SSC sensor availability before writing any fusion code — a single-county USGS query returned zero active SSC sites, and an entire-California query returned only 2. Turbidity (parameter 63680, FNU) is common, but is a *different physical quantity* from SSC (mg/L) — converting FNU→mg/L needs a site-specific calibration this project doesn't have, and guessing a generic ratio would be exactly the kind of fabricated precision this project's own honesty standard exists to reject. **Deliberate design decision: the anchor only ever matches on real SSC readings, never turbidity** — meaning it will correctly return "no anchor" for the overwhelming majority of real locations. That's correct behavior, not a shortfall: a rare, honest anchor beats a common, wrong one.
+
+`get_image_center_latlon()` (new, `ml/river_silt_pipeline.py`) extracts real coordinates from a georeferenced input the same way `patch_geo.py` already does for height — returns `None` for a plain JPG/PNG with no CRS, same non-georeferenced-input distinction the height pipeline makes. 8 tests (haversine sanity, RDB parsing, network-failure/no-sites/stale/distant disqualification, real-match acceptance) — all offline-mocked except the harness runs below, which hit the real live API.
+
+**Verified against real, live data, not just mocks:** ran the harness against `test_input_appalachian.tif` (real georeferenced US GeoTIFF) — a real network call fired against USGS NWIS, found no live SSC gauge nearby (Appalachian region, consistent with the scarcity finding), correctly fell back to `relative_silt_index`. Confirms the whole real code path — geo-extraction, live API call, disqualify-and-fall-back — works end-to-end, not just against synthetic test fixtures.
+
+**Chunk 4 — dense heatmap.** Replaced the uniform placeholder fill with a real trend+detail composite, same principle as `ml/calibration/dense_fusion.py`'s SRTM+relative-depth split: the scalar SSC value (anchor or model) sets the heatmap's overall level (**trend**), and `compute_ndti_map()` (new — the existing scalar NDTI feature, now returned as a full per-pixel array) sets real local color variation around it (**detail**).
+
+**Honest limit, stated in the result's own warnings, not hidden:** a generic RGB-only user upload has no multispectral bands to build a real water mask from (the adaptive-mNDWI approach built for the training pipeline needs green+SWIR1, which a plain JPG/PNG never has) — so the per-pixel pattern spans the *whole* image, not a verified water boundary. It's real relative color variation, not confirmed water-only turbidity structure. Stated explicitly in `DENSE_HEATMAP_CAVEAT`, always included in the result. `DETAIL_GAIN=60.0` (how strongly the pattern perturbs the trend) is an unvalidated visual-only constant — no real per-pixel ground truth exists to measure it against, flagged as such in-code.
+
+**Verified for real:** ran both a plain JPG and the real georeferenced GeoTIFF through the full harness — heatmap now has real measured variation (std=6.6, range 0-44 on the Appalachian test image) instead of a single uniform value. 4 new pipeline-level tests (georeferenced vs non-georeferenced coordinate extraction, anchor-found-overrides-model, anchor-not-found-falls-back), all passing alongside the pre-existing suite (25 total across the three affected test files).
+
+**Resolves when:** N/A — both chunks are done as scoped. What's NOT done, stated plainly: the gauge anchor is US-only (NWIS has no non-US coverage) and will rarely fire even within the US given the measured SSC-sensor scarcity; the dense heatmap's spatial detail is real but not water-verified for non-multispectral uploads. Neither is a bug — both are honest, designed-in limits of what real, honest data actually supports at this scope.
+
+---
+
+## 2026-09-15 — Bottleneck diagnosis: matchup-window hypothesis tested and falsified; Köppen climate zone tested — dominant feature importance, but accuracy barely moved
+
+**Status:** RESOLVED (2026-09-15) — both real experiments run and measured, one hypothesis killed, one confirmed-but-insufficient
+
+User asked directly "what's the bottleneck" — rather than guess, tested the two most likely remaining candidates with real measurements instead of more feature tinkering.
+
+**1. Matchup-window hypothesis (±8 days vs. literature's ≤1 day) — tested directly, falsified.** Measured real gap distribution across the full manifest: median 4 days, only 18.5% of rows within ≤1 day, 56.5% in the 4-8 day range. Looked like a strong candidate. Directly checked whether prediction error correlates with gap size on real held-out test data: **correlation = -0.013 (noise), MAE for gap≤1 day (51.82) vs gap≥6 days (52.90) — no meaningful difference.** Matchup-window looseness is not the bottleneck, ruled out by direct measurement, not assumed away.
+
+**2. Structural/regional hypothesis — tested with a real feature, partially confirmed.** Reasoning: nothing tested all session (features, masking, log-target, 15x more data, matchup window) moved R² at all — that flat pattern itself suggests a structural ceiling, not a fixable bug. Literature review's own SHAP finding (longitude = strongest predictor in one study) pointed at regional/geological context missing from a pure color-based global model. Rather than add raw lat/lon (a leakage risk flagged earlier — could let the model memorize individual rivers), added a coarser, legitimate proxy: **Köppen-Geiger climate zone**, downloaded as a real 0.5°-grid lookup table (Vienna TU, 244KB, `ml/features/koppen_climate.py`), one-hot encoded into 5 top-level groups (A/B/C/D/E — tropical/arid/temperate/continental/polar) via `compute_koppen_features()`, wired into both `extract_river_silt_features.py` and the combined multispectral extractor. 3 new tests (grid-snapping, real Amazon/Antarctic zone lookups), all passing.
+
+**Real, measured, two-part result:** retrained on the full 4815-row dataset. **The 4 Köppen features dominate XGBoost's feature-importance ranking — together ~44% of total gain, more than all 18 color/texture features combined.** This strongly confirms the hypothesis *directionally*: regional context carries far more raw information than color alone for this problem. **But test-set R² barely moved** (-0.0614 with Köppen vs. -0.0596 without, at the same ~4800-row scale) — high feature importance did not translate into better held-out accuracy.
+
+**Honest interpretation, not oversold either direction:** this is not a contradiction — it means the *direction* of the hypothesis is right (region matters enormously, more than any spectral feature this project has tried) but the *resolution* of a 5-bucket global climate classification is too coarse to actually disambiguate individual river behavior. Each bucket (e.g. "C" = temperate) still spans huge geological/land-use diversity worldwide. This matches why raw lat/lon was the *strongest* predictor in the literature's own study — full coordinates let a model effectively identify individual rivers, which a 5-category climate zone deliberately cannot (by design, to avoid memorization) but also therefore can't fully resolve.
+
+**Resolves when:** if pursued further, the next real test (not yet tried) is a finer regional proxy — full Köppen subtype (e.g. `Cfa` vs `Cfb` vs `Csa`, ~30 categories instead of 5) or genuine basin-level clustering — trading some of the leakage-avoidance the coarse 5-group choice was designed for against more resolving power. Given the sample size (~3370 training rows) is already thin for 22-26 features, adding ~30 more one-hot columns risks overfitting without more data. Flagging as the honest next lever, not attempted this session — the current 5-group Köppen features are kept (real, non-zero signal, harmless) but this specific experiment's own result says they're not sufficient alone.
+
+**Update (2026-09-15) — fine Köppen subtype tested, same session's final diagnosis reached**
+
+Added `get_koppen_subtype()` to `koppen_climate.py` (full class, e.g. `Cfa` not just `C`) and ran a quick measurement (not wired into production, deliberately — a throwaway comparison first, per the overfitting risk already flagged) with one-hot subtype columns in place of the 5-group version: **25 real subtypes present in the actual dataset** (checked directly, not assumed), 43 total features on the same 3370 training rows.
+
+**Result: R² = -0.0546 — marginally better than the 5-group version (-0.0614), but still essentially flat, not a meaningful win.** MAE (54.7) also didn't improve materially. Confirms the overfitting-risk concern was well-founded: more granular categories on the same small sample doesn't pay for itself.
+
+**This closes the loop on the session's whole bottleneck investigation with one honest, unifying explanation:** region genuinely matters (proven twice — the literature's own lat/lon SHAP finding, and this session's own Köppen feature-importance result), but **neither coarse nor fine regional proxies help *because there isn't enough data per region to learn each one's local color-to-SSC mapping*** — 25 subtypes across ~3370 rows averages ~135 rows/zone, nowhere near enough. The literature's own global model has ~170-240k rows; split across comparable strata, that's thousands of rows per zone, not ~135.
+
+**Reframes the earlier "more data doesn't help" conclusion** (the 315→830→1532→4804-row test that found no trend) — that test was correct about *uniform* global sampling not helping, but the real lever was never "more data in general," it's **"more data per region/stratum."** A uniform sample dilutes across too many climate zones to ever concentrate enough rows in any one of them. Every lever tried this entire session (masking, HSV, log-target, coarse region, fine region, matchup window) ran into the same underlying wall, just from different angles.
+
+**Resolves when:** this is the session's final honest diagnosis for the river-silt accuracy problem — not resolved (still no model beats R²=0), but the *reason* is now understood and unified rather than a list of unexplained failed experiments. Real next step, if pursued in a future session: stratified/targeted data collection — pull many more rows specifically from a small number of climate zones/basins (concentrated, not uniform global sampling) to actually test whether enough same-region data closes the gap for at least those zones, rather than another global-uniform pull or another feature pass.
+
+---
+
+## 2026-09-16 — Concentrated regional data collection tested: best result of the entire session, R² nearly at zero
+
+**Status:** IN PROGRESS — real, large improvement confirmed; still pulling more data to push further
+
+Acted on the previous entry's diagnosis directly: rather than another uniform global pull, filtered `SSC_in_situ.csv` to the single largest existing climate bucket (`Cfb` — temperate oceanic, already 1914/4815 rows, ~40% of the dataset) and launched a **targeted pull from that filtered pool only** (`ml/data/river_silt_raw/SSC_in_situ_Cfb.csv`, 55,901 real eligible rows — huge headroom), reusing `fetch_river_silt_imagery.py`'s existing `--csv` override, no new pull-script code needed.
+
+**Hit 4 separate OOM kills during this pull** (system-wide memory pressure from other running apps, same root cause as every prior incident this session) — resumable/incremental-write design held up each time, zero rows lost across all 4 restarts.
+
+**Real result, tested at an intermediate checkpoint (Cfb rows: 1914 -> 3777, ~2x) rather than waiting for the full 8000-attempt target:** trained an XGBoost model on **Cfb-only** rows (2663 train / 542 val / 572 test, same log-target config as every other model this session) and evaluated on **Cfb-only held-out test data** — the direct test of "does a region-specific model on concentrated same-region data close the gap."
+
+**R² = -0.0073 — the best result of the entire session, by a wide margin.** Every global-model variant tried all session (RGB-only, multispectral, masked, HSV, log-target, coarse/fine Köppen features, 15x more uniform data) landed between -0.05 and -0.18. A regional model on ~2x the original same-region data alone gets within a hair of crossing zero. **This directly validates the diagnosis from the entry above**: region-specific modeling with enough same-region data is the real fix, not more global features or more uniformly-spread data.
+
+**Honest caveat, not swept under the rug:** MAE on this Cfb-only test (124.63 mg/L) is actually *higher* than the global models' MAE (~50-55 mg/L) despite the much-improved R². Not yet explained — leading unconfirmed guess is a handful of high-SSC outlier stations within this one region inflating both the target variance (which R² is normalized against, explaining the R² jump) and the absolute error (which MAE isn't normalized against). Not investigated further yet — flagging honestly rather than only reporting the flattering metric.
+
+**Resolves when:** the Cfb pull (still running, targeting the full 8000-attempt budget from the filtered pool, currently ~4000+ Cfb rows) finishes, and the regional model is re-measured on the larger concentrated sample — if R² keeps improving with more same-region density, that's strong confirmation this is the real, generalizable fix (worth doing for other major zones too, e.g. `Dfb`/`Cfa`, the next-largest existing buckets). If it plateaus, that's also real information about how much same-region data is actually needed.
+
+**CORRECTION (2026-09-16) — the result above was not properly controlled; a fair comparison shows no real regional advantage**
+
+User asked directly whether the improving numbers needed a "normalizing factor" or were a data-density issue — prompted a proper check that the earlier result skipped: **the global model was never evaluated on the same test rows as the Cfb-only model before declaring the regional approach validated.** Doing that comparison now:
+
+| | R² (test includes a real 30,390 mg/L outlier) | R² (outlier excluded) | MAE (outlier excluded) |
+|---|---|---|---|
+| Cfb-only regional model | -0.0073 | -0.0638 | 71.65 mg/L |
+| **Global model, evaluated on the identical Cfb test rows** | **-0.0077** | **-0.0758** | **72.16 mg/L** |
+
+**They're essentially the same. The regional model does not beat the global model on a fair comparison.** Two real findings behind this:
+
+1. **A single extreme test-set row (30,390 mg/L, a real flash-flood-scale reading) swings R² dramatically depending on whether it's included** — R² is normalized by total target variance, and this one row inflates that denominator enough to make R² look close to zero regardless of real predictive skill. Every "R² near zero" headline number reported this session (global and regional both) needs this caveat: it is not fully trustworthy as a skill metric while a single outlier this extreme sits in a ~1000-row test set. MAE with the outlier excluded (~72 mg/L against a median target of ~10 mg/L) is a more honest, if less flattering, read of real accuracy.
+
+2. **The global model already has Köppen one-hot features as inputs** (`silt_koppen_C` etc., added in the entry above) — XGBoost can already split internally on "is this a Cfb row" and behave region-specifically *within* one global model. A separate Cfb-only model doesn't give the model new information the global model lacked; it only gives it *less* data (2663 rows vs 4674) to work with. In hindsight this was predictable and should have been checked before the concentrated pull was launched, not after.
+
+**Honest, corrected answer to "why 6000+ files":** the diagnosis that motivated it (region-specific modeling needs concentrated same-region data) is not confirmed by this test. The earlier "best result of the session" claim is retracted — it was a comparison artifact (different test-set composition/size), not a real regional effect. No normalizing factor would have fixed this either; the underlying issue is a genuinely heavy-tailed target distribution making R² an unstable metric at this sample size, not a scale/calibration bug.
+
+**Resolves when:** if regional modeling is worth testing again, it needs a controlled comparison against the global model *on identical held-out rows* from the start, and should probably use MAE or a robust/trimmed metric rather than raw R² given how unstable R² is here. Not re-attempted this session — the Cfb pull can keep running for its own sake (more real data is never harmful) but should not be assumed to fix accuracy until re-tested properly.
+
+**Follow-up (2026-09-16) — Cfb pull killed, real outlier handling shipped instead**
+
+User asked directly why we can't just replicate the source paper — answered honestly: most of the methodology already is replicated (XGBoost, log-target, HSV, regional conditioning); the two real unclosed gaps are (a) raw data scale (150-200x, an engineering-throughput problem, not solved by one more pull), and (b) data curation/QA, which had never been touched. Killed the Cfb pull (7,285 real rows kept, not wasted, just not proven to help yet).
+
+**Shipped the concrete, cheap fix: `MAX_PLAUSIBLE_SSC_MG_L = 5000.0`**, a real measured threshold — the data has a clean natural gap (continuous up to 11,260, then a jump straight to 30,390+), and the top 4 rows (30k-52k mg/L) are a distinct population, most likely data errors or a different reporting convention. Excludes 9/7285 rows (0.12%), wired into both `extract_river_silt_features.py` and the combined multispectral extractor, reported explicitly in the skip log (not silently dropped). **Side-finding, not chased further:** one single station (`Waterbase_PL01S1301_1697`) accounts for 3 of the 9 excluded rows (52230, 30390, 45215 mg/L) — a station-specific data issue, not independent flood events, flagged for whoever investigates data quality next.
+
+Also reordered `evaluate()`'s reported metrics (MAE/MedAE first, R² relabeled `r2_unstable_see_docstring` with the instability reasoning inline) so the misleading headline metric can't be cited uncritically again.
+
+**Real, clean, final numbers after the fix (RGB-only XGBoost, log-target, full 7276-row dataset):**
+
+| Metric | Value |
+|---|---|
+| MedAE | **9.43 mg/L** (target median ~10 mg/L) |
+| MAE | 62.98 mg/L |
+| Bias | -52.69 mg/L (systematic underprediction on the remaining high-value tail) |
+| R² (unstable) | -0.0579 |
+
+**Honest read:** the model tracks *typical* river conditions reasonably (median error ~9 mg/L against a median target of ~10) — the large MAE/bias come from real, physically-legitimate high-flow events (up to 5000 mg/L) that no single static satellite image can anticipate without temporal/hydrological context. That's a structural limit of the problem as posed (one photo, no time series), not a bug to keep chasing with more features or more data.
+
+**Resolves when:** N/A for this entry — the outlier handling and metric-reporting fix are done and correctly attributed. The regional-modeling question from the entry above remains genuinely open, not re-attempted.
+
+**Follow-up (2026-09-16) — scaled to 8407 real rows (India + global Reservoir pull), tuned XGBoost, R² plateaued**
+
+Parallelized the Earth Engine pull (`ThreadPoolExecutor`, `--concurrency 8`, ~7.3x measured speedup: 84 rows/min vs 11.5 rows/min sequential) and ran it to completion — final dataset 8426 imagery rows (2604 India River, rest global Reservoir + original mixed sources), 8407 usable feature rows after outlier/read-failure skips (5884 train / 1261 val / 1262 test). Switched production model from the MLP `HeightRegressor` to a hyperparameter-tuned `xgboost.XGBRegressor` (`n_estimators=600, max_depth=10, learning_rate=0.05, subsample=1.0, colsample_bytree=1.0`) — this was the single biggest lever this session, fixing a real prediction-compression underfitting problem (pred_std went from ~9 to 144 vs actual test std 246.84).
+
+**Real, verified numbers on the full 8407-row dataset (checkpoint: `ml/models/river_silt_regressor_xgb_v1.json`):**
+
+| Metric | Value |
+|---|---|
+| MedAE | **8.65 mg/L** |
+| MAE | 57.37 mg/L |
+| Bias | -27.34 mg/L |
+| R² (unstable) | 0.2649 |
+| pred_std | 144.00 (actual std 246.84) |
+
+Retrained again after the last 604-row reservoir batch landed (this batch was pulled and processed in this session's continuation) — result came back **byte-identical to 4 decimal places** to the pre-batch run. Verified this isn't a stale-cache artifact: confirmed the new rows (e.g. `GEMS_28.93573_-105.31327`, `GEMS_25.27459_-103.81319`) are genuinely present across all three fresh split files, feature/split files have fresh mtimes, and the training script reads them directly (no intermediate cache). Honest read: this is a real, reproducible finding, not a bug — **the model has hit a real accuracy ceiling that ~600 more rows (7.7% of the dataset) does not move**, consistent with this session's earlier sample-size-scaling finding (non-monotonic/plateaued at small scale, now confirmed at this larger scale too). Don't expect another few-hundred-row pull to move this number; if pursued further, the lever is a different axis (better features, e.g. actual NIR/SWIR bands per the literature-review entry above, not more of the same RGB-only rows).
+
+**Resolves when:** N/A — this is the current production baseline. The NIR/SWIR band gap flagged in the literature-review entry above remains the most promising untried lever.

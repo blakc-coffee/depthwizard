@@ -1,17 +1,26 @@
 import { ApiException, parseApiError } from './errors';
 import {
   mockCreateJob,
+  mockCreateSiltJob,
   mockDeleteJob,
+  mockDeleteSiltJob,
   mockGetJob,
   mockGetJobResult,
   mockGetJobs,
+  mockGetSiltJob,
+  mockGetSiltJobResult,
+  mockGetSiltJobs,
 } from './mockApi';
 import { supabase } from './supabase';
 import {
   CreateJobResponse,
+  CreateSiltJobResponse,
   JobListResponse,
   JobResult,
   JobStatusResponse,
+  SiltJobListResponse,
+  SiltJobResult,
+  SiltJobStatusResponse,
 } from './types';
 
 export const isMockApi =
@@ -204,6 +213,102 @@ export async function deleteJob(jobId: string): Promise<void> {
       headers: {
         ...authHeaders,
       },
+    });
+
+    return await handleResponse<void>(response);
+  } catch (err) {
+    throw formatNetworkError(err);
+  }
+}
+
+// River-silt use case — same fetch/error-handling shape as the terrain
+// functions above, pointed at /api/v1/silt-jobs.
+export async function createSiltJob(file: File): Promise<CreateSiltJobResponse> {
+  if (isMockApi) {
+    return mockCreateSiltJob(file);
+  }
+
+  try {
+    const authHeaders = await getAuthHeader();
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await fetch(buildApiUrl('/api/v1/silt-jobs'), {
+      method: 'POST',
+      headers: { ...authHeaders },
+      body: formData,
+    });
+
+    return await handleResponse<CreateSiltJobResponse>(response);
+  } catch (err) {
+    throw formatNetworkError(err);
+  }
+}
+
+export async function getSiltJob(jobId: string): Promise<SiltJobStatusResponse> {
+  if (isMockApi || jobId.startsWith('mock-')) {
+    return mockGetSiltJob(jobId);
+  }
+
+  try {
+    const authHeaders = await getAuthHeader();
+    const response = await fetch(buildApiUrl(`/api/v1/silt-jobs/${encodeURIComponent(jobId)}`), {
+      method: 'GET',
+      headers: { Accept: 'application/json', ...authHeaders },
+    });
+
+    return await handleResponse<SiltJobStatusResponse>(response);
+  } catch (err) {
+    throw formatNetworkError(err);
+  }
+}
+
+export async function getSiltJobResult(jobId: string): Promise<SiltJobResult> {
+  if (isMockApi || jobId.startsWith('mock-')) {
+    return mockGetSiltJobResult(jobId);
+  }
+
+  try {
+    const authHeaders = await getAuthHeader();
+    const response = await fetch(buildApiUrl(`/api/v1/silt-jobs/${encodeURIComponent(jobId)}/result`), {
+      method: 'GET',
+      headers: { Accept: 'application/json', ...authHeaders },
+    });
+
+    return await handleResponse<SiltJobResult>(response);
+  } catch (err) {
+    throw formatNetworkError(err);
+  }
+}
+
+export async function getSiltJobs(): Promise<SiltJobListResponse> {
+  if (isMockApi) {
+    return mockGetSiltJobs();
+  }
+
+  try {
+    const authHeaders = await getAuthHeader();
+    const response = await fetch(buildApiUrl('/api/v1/silt-jobs'), {
+      method: 'GET',
+      headers: { Accept: 'application/json', ...authHeaders },
+    });
+
+    return await handleResponse<SiltJobListResponse>(response);
+  } catch (err) {
+    throw formatNetworkError(err);
+  }
+}
+
+export async function deleteSiltJob(jobId: string): Promise<void> {
+  if (isMockApi) {
+    return mockDeleteSiltJob(jobId);
+  }
+
+  try {
+    const authHeaders = await getAuthHeader();
+    const response = await fetch(buildApiUrl(`/api/v1/silt-jobs/${encodeURIComponent(jobId)}`), {
+      method: 'DELETE',
+      headers: { ...authHeaders },
     });
 
     return await handleResponse<void>(response);

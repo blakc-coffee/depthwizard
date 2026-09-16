@@ -30,6 +30,10 @@ export const UploadForm = () => {
   const primaryInputRef = useRef<HTMLInputElement>(null);
   const secondaryInputRef = useRef<HTMLInputElement>(null);
 
+  // Single-file DSM upload is the default; comparison mode is opt-in.
+  const [comparisonMode, setComparisonMode] = useState(false);
+  const singleFileOnly = !comparisonMode;
+
   const [selectedPrimaryFile, setSelectedPrimaryFile] = useState<File | null>(null);
   const [selectedSecondaryFile, setSelectedSecondaryFile] = useState<File | null>(null);
 
@@ -98,6 +102,13 @@ export const UploadForm = () => {
     }
   };
 
+  const handleToggleComparisonMode = () => {
+    if (comparisonMode) {
+      handleRemoveSecondaryFile();
+    }
+    setComparisonMode((prev) => !prev);
+  };
+
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement> | React.MouseEvent) => {
     if (e) e.preventDefault();
     setErrorMessage(null);
@@ -142,10 +153,12 @@ export const UploadForm = () => {
       {/* Page Title & Subtitle */}
       <div className="mb-6">
         <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-[#36394a] font-heading mb-2">
-          Input Satellite / Aerial Imagery
+          {singleFileOnly ? 'Upload DSM / Terrain Image' : 'Input Satellite / Aerial Imagery'}
         </h1>
         <p className="text-sm text-[#666d80]">
-          Upload baseline and post-event imagery datasets for 3D elevation estimation and temporal disaster change detection.
+          {singleFileOnly
+            ? 'Upload a single satellite/aerial image or GeoTIFF DSM for 3D elevation estimation.'
+            : 'Upload baseline and post-event imagery datasets for 3D elevation estimation and temporal disaster change detection.'}
         </p>
       </div>
 
@@ -189,16 +202,18 @@ export const UploadForm = () => {
           disabled={submitting}
           className="sr-only"
         />
-        <input
-          ref={secondaryInputRef}
-          id="file-upload-secondary"
-          name="file-upload-secondary"
-          type="file"
-          accept=".png,.jpg,.jpeg,.tif,.tiff,image/png,image/jpeg,image/tiff"
-          onChange={handleSecondaryInputChange}
-          disabled={submitting}
-          className="sr-only"
-        />
+        {!singleFileOnly && (
+          <input
+            ref={secondaryInputRef}
+            id="file-upload-secondary"
+            name="file-upload-secondary"
+            type="file"
+            accept=".png,.jpg,.jpeg,.tif,.tiff,image/png,image/jpeg,image/tiff"
+            onChange={handleSecondaryInputChange}
+            disabled={submitting}
+            className="sr-only"
+          />
+        )}
 
         {/* Left Column: Dual Imagery Workspaces */}
         <div className="bg-[#f6f8fa] border border-[#cdd2d9] rounded-[12px] p-5 sm:p-6 space-y-5 w-full">
@@ -211,23 +226,33 @@ export const UploadForm = () => {
                 Accepted: GeoTIFF, DEM, PNG, JPEG (Up to 100MB per file)
               </p>
             </div>
-            {selectedSecondaryFile && (
-              <span className="text-xs font-semibold text-[#5e4cff] bg-[#dfdbff] px-2.5 py-1 rounded-full border border-[#c8ccf3]">
-                Dual Comparison Mode Active
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {!singleFileOnly && selectedSecondaryFile && (
+                <span className="text-xs font-semibold text-[#5e4cff] bg-[#dfdbff] px-2.5 py-1 rounded-full border border-[#c8ccf3]">
+                  Dual Comparison Mode Active
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={handleToggleComparisonMode}
+                disabled={submitting}
+                className="text-xs font-medium text-[#5e4cff] hover:text-[#5e4cff]/80 border border-[#c8ccf3] bg-[#dfdbff]/40 hover:bg-[#dfdbff] px-3 py-1.5 rounded-[8px] transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] disabled:opacity-40"
+              >
+                {comparisonMode ? '− Remove comparison image' : '+ Add comparison image'}
+              </button>
+            </div>
           </div>
 
-          {/* Dual Dropzones: Grid layout */}
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {/* Input 1: Primary (Baseline) */}
+          {/* Dropzones: single column in single-file mode, dual grid otherwise */}
+          <div className={`grid grid-cols-1 gap-4 ${singleFileOnly ? '' : 'xl:grid-cols-2'}`}>
+            {/* Input 1: Primary (Baseline / DSM) */}
             <div className="bg-white border border-[#cdd2d9] rounded-[12px] p-4 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <div className="flex items-center space-x-2">
                     <span className="w-2 h-2 rounded-full bg-[#5e4cff]" />
                     <span className="text-xs font-semibold text-[#36394a] uppercase tracking-wide">
-                      Input 1 · Baseline
+                      {singleFileOnly ? 'DSM / Terrain File' : 'Input 1 · Baseline'}
                     </span>
                   </div>
                   <span className="text-[11px] font-semibold text-[#5e4cff] bg-[#dfdbff] px-2 py-0.5 rounded-full border border-[#c8ccf3]">
@@ -235,7 +260,9 @@ export const UploadForm = () => {
                   </span>
                 </div>
                 <p className="text-xs text-[#818898] mb-3">
-                  Pre-disaster aerial or satellite capture for baseline topography.
+                  {singleFileOnly
+                    ? 'Single GeoTIFF DSM or aerial/satellite image for 3D elevation reconstruction.'
+                    : 'Pre-disaster aerial or satellite capture for baseline topography.'}
                 </p>
               </div>
 
@@ -347,6 +374,7 @@ export const UploadForm = () => {
             </div>
 
             {/* Input 2: Secondary (Post-Disaster / Event) */}
+            {!singleFileOnly && (
             <div className="bg-white border border-[#cdd2d9] rounded-[12px] p-4 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between mb-1.5">
@@ -471,17 +499,20 @@ export const UploadForm = () => {
                 </div>
               )}
             </div>
+            )}
           </div>
 
           {/* Format specifications note */}
           <div className="bg-white border border-[#cdd2d9] rounded-[12px] p-4 text-xs text-[#666d80] space-y-1.5">
             <span className="font-semibold text-[#36394a] block mb-1 font-heading">Format Specifications:</span>
             <p>
-              • <strong>Primary Image (Baseline):</strong> Ground elevation reference for 3D reconstruction and calibration ($m$).
+              • <strong>{singleFileOnly ? 'DSM / Image:' : 'Primary Image (Baseline):'}</strong> Ground elevation reference for 3D reconstruction and calibration ($m$).
             </p>
-            <p>
-              • <strong>Secondary Image (Event - Optional):</strong> Post-disaster comparison layer enabling 3-way toggle and difference heatmap generation.
-            </p>
+            {!singleFileOnly && (
+              <p>
+                • <strong>Secondary Image (Event - Optional):</strong> Post-disaster comparison layer enabling 3-way toggle and difference heatmap generation.
+              </p>
+            )}
           </div>
         </div>
 
@@ -541,7 +572,7 @@ export const UploadForm = () => {
                   />
                 </svg>
               )}
-              <span>{selectedSecondaryFile ? 'Process Both Images' : 'Process Image'}</span>
+              <span>{singleFileOnly ? 'Process DSM' : selectedSecondaryFile ? 'Process Both Images' : 'Process Image'}</span>
             </button>
           </div>
         </div>

@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 from app.core.config import get_settings
 from app.core.errors import ApiException, ErrorCode
 from app.core.logging import configure_logging
-from app.routes import health, jobs
+from app.routes import health, jobs, silt_jobs
 
 configure_logging()
 logger = logging.getLogger("depthwizard.api")
@@ -32,6 +32,7 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(jobs.router)
+app.include_router(silt_jobs.router)
 # routes/compare.py is mounted here once B7 starts (PRD §9.10 B7) — it's a
 # stub today, not a router yet.
 

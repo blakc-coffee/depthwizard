@@ -6,9 +6,10 @@ export const Header = () => {
   const location = useLocation();
 
   const isAuthPage = location.pathname === '/login';
+  const isSiltUseCase = location.pathname.startsWith('/silt');
   const isInput = location.pathname === '/app' || location.pathname === '/';
-  const isProcessing = location.pathname.startsWith('/processing');
-  const isResults = location.pathname.startsWith('/results');
+  const isProcessing = location.pathname.startsWith('/processing') || location.pathname.startsWith('/silt-processing');
+  const isResults = location.pathname.startsWith('/results') || location.pathname.startsWith('/silt-results');
 
   return (
     <header className="w-full bg-white py-4 mb-4 sm:mb-8 flex-shrink-0">
@@ -26,13 +27,36 @@ export const Header = () => {
           </span>
         </NavLink>
 
+        {/* Use-case switcher — Terrain vs River Silt are separate pipelines
+            (docs/phase_river_silt.md §4), not steps in one flow. */}
+        {!isAuthPage && (
+          <div className="hidden sm:flex items-center bg-[#f6f8fa] border border-[#cdd2d9] rounded-full p-1 text-xs font-medium">
+            <NavLink
+              to="/app"
+              className={`px-3.5 py-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5e4cff] ${
+                !isSiltUseCase ? 'bg-[#5e4cff] text-white shadow-xs' : 'text-[#666d80] hover:text-[#36394a]'
+              }`}
+            >
+              Terrain
+            </NavLink>
+            <NavLink
+              to="/silt"
+              className={`px-3.5 py-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5e4cff] ${
+                isSiltUseCase ? 'bg-[#5e4cff] text-white shadow-xs' : 'text-[#666d80] hover:text-[#36394a]'
+              }`}
+            >
+              River Silt
+            </NavLink>
+          </div>
+        )}
+
         {/* Workflow Navigation - ONLY displayed on authenticated app pages */}
         {!isAuthPage && (
           <nav aria-label="Main Navigation" className="hidden sm:flex items-center space-x-8 text-xs font-medium">
             <NavLink
-              to="/app"
+              to={isSiltUseCase ? '/silt' : '/app'}
               className={`transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5e4cff] rounded py-1 px-1.5 ${
-                isInput ? 'text-[#5e4cff] font-semibold' : 'text-[#666d80] hover:text-[#36394a]'
+                isInput || (isSiltUseCase && !isProcessing && !isResults) ? 'text-[#5e4cff] font-semibold' : 'text-[#666d80] hover:text-[#36394a]'
               }`}
             >
               Input

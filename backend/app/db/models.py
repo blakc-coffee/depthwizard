@@ -39,6 +39,15 @@ COMPARE_STAGES = ("loading_inputs", "aligning", "computing_diff", "packaging", "
 
 OUTPUT_TYPES = ("relative_dsm", "absolute_dsm")
 
+# River-silt use case — a sibling job kind, not a variant of Job: its output
+# shape (texture + one flat heatmap, an SSC scalar) diverges enough from
+# terrain's (heightmap/16bit/DSM/confidence-map, height metadata) that
+# forcing both into one polymorphic table would mean nullable columns
+# neither kind uses. Same relationship Compare already has to Job — a
+# sibling table, not a shared one (docs/phase_river_silt.md).
+SILT_JOB_STAGES = ("loading_input", "estimating_silt", "packaging", "uploading_results")
+SILT_OUTPUT_TYPES = ("relative_silt_index", "absolute_ssc")
+
 
 class Job(Base):
     """Durable job state (PRD §9.4). Postgres is the source of truth —
@@ -77,6 +86,57 @@ class Job(Base):
     # column is still literally named `metadata`, matching the contract.
     job_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB, nullable=True)
     metrics: Mapped[dict[str, float] | None] = mapped_column(JSONB, nullable=True)
+    warnings: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
+
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    celery_task_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now(), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(nullable=True)
+
+
+class SiltJob(Base):
+    """River-silt job state — same lifecycle shape as Job (PRD-equivalent:
+    docs/phase_river_silt.md), a distinct table rather than a shared one.
+
+    PLACEHOLDER SCOPE (2026-09-14, see ml/river_silt_pipeline.py): output_type
+    is always 'relative_silt_index' today — no gauge-anchor fusion exists yet
+    to ever produce 'absolute_ssc'. The column/constraint already allows it
+    so this table doesn't need another migration once Chunk 3 lands.
+    """
+
+    __tablename__ = "silt_jobs"
+    __table_args__ = (
+        CheckConstraint(f"status IN {JOB_STATUSES}", name="silt_jobs_status_valid"),
+        CheckConstraint(f"stage IS NULL OR stage IN {SILT_JOB_STAGES}", name="silt_jobs_stage_valid"),
+        CheckConstraint("progress >= 0 AND progress <= 100", name="silt_jobs_progress_range"),
+        CheckConstraint(
+            f"output_type IS NULL OR output_type IN {SILT_OUTPUT_TYPES}", name="silt_jobs_output_type_valid"
+        ),
+        Index("ix_silt_jobs_user_id_created_at", "user_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    stage: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    progress: Mapped[int] = mapped_column(nullable=False, default=0)
+
+    input_path: Mapped[str] = mapped_column(Text, nullable=False)
+    input_filename: Mapped[str] = mapped_column(Text, nullable=False)
+    input_media_type: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    output_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    texture_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    heatmap_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    predicted_ssc_mg_l: Mapped[float | None] = mapped_column(nullable=True)
+
+    job_metadata: Mapped[dict[str, Any] | None] = mapped_column("metadata", JSONB, nullable=True)
     warnings: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
 
     error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)

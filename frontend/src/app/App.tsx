@@ -4,6 +4,9 @@ import { ProtectedRoute } from '../components/auth/ProtectedRoute';
 import { AuthPage } from '../pages/AuthPage';
 import { ProcessingPage } from '../pages/ProcessingPage';
 import { ResultsPage } from '../pages/ResultsPage';
+import { SiltProcessingPage } from '../pages/SiltProcessingPage';
+import { SiltResultsPage } from '../pages/SiltResultsPage';
+import { SiltWorkspacePage } from '../pages/SiltWorkspacePage';
 import { WorkspacePage } from '../pages/WorkspacePage';
 
 export default function App() {
@@ -32,6 +35,30 @@ export default function App() {
           element={
             <ProtectedRoute>
               <ResultsPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/silt"
+          element={
+            <ProtectedRoute>
+              <SiltWorkspacePage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/silt-processing/:jobId"
+          element={
+            <ProtectedRoute>
+              <SiltProcessingPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/silt-results/:jobId"
+          element={
+            <ProtectedRoute>
+              <SiltResultsPage />
             </ProtectedRoute>
           }
         />
