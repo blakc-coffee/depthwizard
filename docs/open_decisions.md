@@ -1093,3 +1093,13 @@ User screenshot showed the channel as a near-solid black wedge, no visible gradi
 Fixed by expanding the same triangle list (the `indices` array was already correct — this wasn't a winding bug) into a non-indexed geometry: each triangle gets its own 3 unique vertices instead of sharing them with neighbors, so `computeVertexNormals()` (now effectively per-face, nothing to average against) gives each face its own correct normal. Added `flatShading: true` too, belt-and-suspenders against any future accidental vertex sharing. Vertex colors (the sediment/water gradient) are untouched — that interpolation was never the broken part.
 
 **Resolves when:** N/A — shipped, `tsc`/`vite build` clean.
+
+## 2026-09-18 — Comparison (change detection): ML side built, backend side superseded by parallel work
+
+Built `ml/change_detection/diff.py::compute_height_change` (linear `min_height`/`max_height` rescale, works identically for relative 0/255 and absolute jobs; prefers per-pixel DSM metres over the heightmap scale only when both jobs are absolute and both produced a DSM; raises `ValueError`, never fabricates, on size mismatch/unreadable files/no overlap). 7 tests, `ml/tests/test_change_detection_diff.py`.
+
+Also built a full backend half (routes/schemas/services/task/contracts) before discovering `origin/main` had 8 unpushed-from-here commits implementing the same feature with a materially different, more complete design (two-image upload creates both jobs + compare in one request; worker auto-triggers the compare once both source jobs finish; frontend already wired to it). Every backend file conflicted line-for-line. **Discarded my backend implementation entirely** (`git reset --hard origin/main`, my throwaway commit stays reachable in reflog only, never pushed) and kept only the ML module, which had zero conflict — `origin/main`'s own `integration/compare_runner.py` already called `compute_height_change` with the identical keyword signature, and its `ml/change_detection/diff.py` was still empty (their side was waiting on exactly this).
+
+Verified real, not assumed: full backend suite (55 tests, teammate's design + this session's real ML module, not a mock) passes against a live Postgres.
+
+**Resolves when:** N/A — shipped. Lesson for next time: check `git fetch`/`git log origin/main` for in-flight parallel work on the same PRD section *before* building the backend half of anything spec-driven, not after.
