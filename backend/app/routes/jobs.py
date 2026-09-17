@@ -14,6 +14,7 @@ from app.auth.dependencies import get_current_user_id
 from app.core.config import get_settings
 from app.core.errors import ApiException, ErrorCode
 from app.core.rate_limit import limiter
+from app.db.models import Job
 from app.db.session import get_db
 from app.schemas.errors import ApiError
 from app.schemas.jobs import (
@@ -27,6 +28,7 @@ from app.schemas.jobs import (
     JobSummary,
 )
 from app.services import storage
+from app.services.compares import CompareService
 from app.services.jobs import JobService
 from app.services.upload_validation import sanitize_filename, sniff_media_type, validate_image_content
 from app.tasks.process_image import process_image
@@ -34,47 +36,84 @@ from app.tasks.process_image import process_image
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
 
-@router.post("", status_code=202, response_model=CreateJobResponse)
-@limiter.limit("10/hour")
-async def create_job(
-    request: Request,
-    file: UploadFile,
-    user_id: str = Depends(get_current_user_id),
-    db: Session = Depends(get_db),
-) -> CreateJobResponse:
+def _validate_upload(content: bytes, filename: str | None, *, label: str | None = None) -> tuple[str, str]:
+    """Returns (media_type, sanitized filename). `label` prefixes error messages
+    so a two-image upload says which image was rejected."""
     settings = get_settings()
-    content = await file.read()
+    try:
+        if len(content) > settings.max_upload_bytes:
+            raise ApiException(ErrorCode.FILE_TOO_LARGE, f"File exceeds the {settings.max_upload_mb} MB limit.")
+        media_type = sniff_media_type(content)
+        validate_image_content(content, media_type, settings.max_image_pixels)
+    except ApiException as exc:
+        if label:
+            raise ApiException(exc.code, f"{label}: {exc.message}") from exc
+        raise
+    return media_type, sanitize_filename(filename)
 
-    if len(content) > settings.max_upload_bytes:
-        raise ApiException(ErrorCode.FILE_TOO_LARGE, f"File exceeds the {settings.max_upload_mb} MB limit.")
 
-    media_type = sniff_media_type(content)
-    validate_image_content(content, media_type, settings.max_image_pixels)
-
-    filename = sanitize_filename(file.filename)
+def _create_job_with_input(
+    jobs: JobService, db: Session, user_id: str, content: bytes, media_type: str, filename: str
+) -> Job:
     job_id = uuid.uuid4()
-    stored_path = storage.input_path(user_id, str(job_id), media_type)
-
-    jobs = JobService(db)
     job = jobs.create(
         job_id=job_id,
         user_id=user_id,
-        input_path=stored_path,
+        input_path=storage.input_path(user_id, str(job_id), media_type),
         input_filename=filename,
         input_media_type=media_type,
     )
-
     try:
         storage.save_input(user_id, str(job_id), content, media_type)
     except ApiException:
         db.delete(job)
         db.commit()
         raise
+    return job
 
-    async_result = process_image.delay(str(job.id))
-    jobs.set_celery_task_id(job.id, async_result.id)
 
-    return CreateJobResponse(job_id=job.id, status="queued")
+@router.post("", status_code=202, response_model=CreateJobResponse, response_model_exclude_none=True)
+@limiter.limit("10/hour")
+async def create_job(
+    request: Request,
+    file: UploadFile,
+    secondary_file: UploadFile | None = None,
+    user_id: str = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+) -> CreateJobResponse:
+    content = await file.read()
+    media_type, filename = _validate_upload(content, file.filename)
+
+    if secondary_file is not None:
+        after_content = await secondary_file.read()
+        after_media_type, after_filename = _validate_upload(
+            after_content, secondary_file.filename, label="Second image"
+        )
+
+    jobs = JobService(db)
+    job = _create_job_with_input(jobs, db, user_id, content, media_type, filename)
+
+    if secondary_file is None:
+        async_result = process_image.delay(str(job.id))
+        jobs.set_celery_task_id(job.id, async_result.id)
+        return CreateJobResponse(job_id=job.id, status="queued")
+
+    try:
+        after_job = _create_job_with_input(jobs, db, user_id, after_content, after_media_type, after_filename)
+    except ApiException:
+        db.delete(job)
+        db.commit()
+        storage.delete_job_artifacts(user_id, str(job.id))
+        raise
+
+    compare = CompareService(db).create(user_id=user_id, before_job_id=job.id, after_job_id=after_job.id)
+    for queued_job in (job, after_job):
+        async_result = process_image.delay(str(queued_job.id))
+        jobs.set_celery_task_id(queued_job.id, async_result.id)
+
+    return CreateJobResponse(
+        job_id=job.id, status="queued", secondary_job_id=after_job.id, compare_id=compare.id
+    )
 
 
 @router.get("/{job_id}", response_model=JobStatusResponse)

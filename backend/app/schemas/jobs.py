@@ -30,6 +30,9 @@ HeightUnits = Literal["m", "relative"]
 class CreateJobResponse(BaseModel):
     job_id: UUID
     status: JobStatus
+    # Set only when a second (after) image was uploaded; job_id is then the before job.
+    secondary_job_id: UUID | None = None
+    compare_id: UUID | None = None
 
 
 class JobStatusResponse(BaseModel):
