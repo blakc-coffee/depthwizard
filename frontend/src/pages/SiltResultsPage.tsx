@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
 import { DredgingIndicator } from '../components/results/DredgingIndicator';
 import { SiltCrossSectionViewer } from '../components/viewer/SiltCrossSectionViewer';
+import { Badge } from '../components/common/Badge';
 import { getSiltJobResult } from '../lib/api';
 import { getFriendlyErrorMessage } from '../lib/errors';
 import { SiltJobResult } from '../lib/types';
@@ -58,7 +59,7 @@ export const SiltResultsPage = () => {
   return (
     <AppShell>
       <div className="w-full flex-1 flex flex-col space-y-6">
-        <div className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 flex-shrink-0">
+        <div className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 flex-shrink-0">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-3 mb-1">
               <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 font-heading">
@@ -66,18 +67,12 @@ export const SiltResultsPage = () => {
               </h1>
               {result && (
                 <>
-                  <span
-                    className={`text-xs px-3 py-1 rounded-full font-medium ${
-                      isAbsolute
-                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                        : 'bg-amber-50 text-amber-800 border border-amber-200'
-                    }`}
-                  >
+                  <Badge variant="text-only" intent={isAbsolute ? 'success' : 'warning'}>
                     {isAbsolute ? 'Absolute SSC' : 'Relative Silt Index'}
-                  </span>
-                  <span className="text-xs px-3 py-1 rounded-full font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                  </Badge>
+                  <Badge variant="text-only" intent="neutral">
                     Waterway Flood Risk
-                  </span>
+                  </Badge>
                 </>
               )}
             </div>
@@ -148,7 +143,7 @@ export const SiltResultsPage = () => {
               <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
                 <h4 className="text-xs font-semibold text-slate-900 font-heading mb-2.5">Concentration Analytics</h4>
                 <dl className="space-y-2 text-xs">
-                  <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                  <div className="flex justify-between items-center pb-1">
                     <dt className="text-slate-500">Predicted SSC</dt>
                     <dd className="font-mono font-bold text-base text-slate-900">
                       {result.predicted_ssc_mg_l.toFixed(1)} mg/L
@@ -156,7 +151,7 @@ export const SiltResultsPage = () => {
                   </div>
                   <div className="flex justify-between items-center">
                     <dt className="text-slate-500">Observation Type</dt>
-                    <dd className="font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    <dd className="font-semibold text-emerald-600">
                       {isAbsolute ? 'Absolute Metric' : 'Relative Index'}
                     </dd>
                   </div>

@@ -60,7 +60,7 @@ export const ResultsPage = () => {
     <AppShell>
       <div className="w-full flex-1 flex flex-col space-y-6">
         {/* Header Title Row */}
-        <div className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 flex-shrink-0">
+        <div className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 flex-shrink-0">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-3 mb-1">
               <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 font-heading">
@@ -259,8 +259,8 @@ export const ResultsPage = () => {
                 </div>
               )}
 
-              {/* Elevation Scale & Units (Rule 1 & 6: Single divider, plain label/value pairs) */}
-              <div className="pt-4 border-t border-slate-100 space-y-3.5">
+              {/* Elevation Scale & Units (Rule 1 & 6: Plain label/value pairs, no divider) */}
+              <div className="pt-2 space-y-3.5">
                 <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider block">
                   Elevation Metrics
                 </span>

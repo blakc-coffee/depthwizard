@@ -11,6 +11,21 @@ export const Header = () => {
   const isProcessing = location.pathname.startsWith('/processing') || location.pathname.startsWith('/silt-processing');
   const isResults = location.pathname.startsWith('/results') || location.pathname.startsWith('/silt-results');
 
+  const terrainTarget = isResults
+    ? '/results/mock-job-1789634079774'
+    : isProcessing
+      ? '/processing/mock-job-1789634079774'
+      : '/app';
+  const siltTarget = isResults
+    ? '/silt-results/real-demo'
+    : isProcessing
+      ? '/silt-processing/silt-job-demo'
+      : '/silt';
+
+  const inputTarget = isSiltUseCase ? '/silt' : '/app';
+  const processingTarget = isSiltUseCase ? '/silt-processing/silt-job-demo' : '/processing/mock-job-1789634079774';
+  const resultsTarget = isSiltUseCase ? '/silt-results/real-demo' : '/results/mock-job-1789634079774';
+
   return (
     <header className="w-full bg-white py-4 mb-4 sm:mb-8 flex-shrink-0">
       <div className="flex items-center justify-between">
@@ -27,21 +42,21 @@ export const Header = () => {
           </span>
         </NavLink>
 
-        {/* Use-case switcher — Hidden on Results page as requested */}
-        {!isAuthPage && !isResults && (
-          <div className="hidden sm:flex items-center bg-[#f6f8fa] border border-[#cdd2d9] rounded-full p-1 text-xs font-medium">
+        {/* Use-case switcher — Square buttons without border around the button */}
+        {!isAuthPage && (
+          <div className="hidden sm:flex items-center bg-[#f4f5f7] rounded-md p-1 text-xs font-medium space-x-1">
             <NavLink
-              to="/app"
-              className={`px-3.5 py-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5e4cff] ${
-                !isSiltUseCase ? 'bg-[#5e4cff] text-white shadow-xs' : 'text-[#666d80] hover:text-[#36394a]'
+              to={terrainTarget}
+              className={`px-3 py-1.5 rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5e4cff] ${
+                !isSiltUseCase ? 'bg-[#5e4cff] text-white shadow-xs' : 'text-[#666d80] hover:text-[#36394a] hover:bg-black/5'
               }`}
             >
               Terrain
             </NavLink>
             <NavLink
-              to="/silt"
-              className={`px-3.5 py-1 rounded-full transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5e4cff] ${
-                isSiltUseCase ? 'bg-[#5e4cff] text-white shadow-xs' : 'text-[#666d80] hover:text-[#36394a]'
+              to={siltTarget}
+              className={`px-3 py-1.5 rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5e4cff] ${
+                isSiltUseCase ? 'bg-[#5e4cff] text-white shadow-xs' : 'text-[#666d80] hover:text-[#36394a] hover:bg-black/5'
               }`}
             >
               River Silt
@@ -49,33 +64,35 @@ export const Header = () => {
           </div>
         )}
 
-        {/* Workflow Navigation — Hidden on Results page as requested */}
-        {!isAuthPage && !isResults && (
+        {/* Workflow Navigation — Visible anywhere across the app */}
+        {!isAuthPage && (
           <nav aria-label="Main Navigation" className="hidden sm:flex items-center space-x-8 text-xs font-medium">
             <NavLink
-              to={isSiltUseCase ? '/silt' : '/app'}
+              to={inputTarget}
               className={`transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5e4cff] rounded py-1 px-1.5 ${
-                isInput || (isSiltUseCase && !isProcessing && !isResults) ? 'text-[#5e4cff] font-semibold' : 'text-[#666d80] hover:text-[#36394a]'
+                isInput ? 'text-[#5e4cff] font-semibold' : 'text-[#666d80] hover:text-[#36394a]'
               }`}
             >
               Input
             </NavLink>
 
-            <span
-              className={`transition-colors ${
-                isProcessing ? 'text-[#5e4cff] font-semibold' : 'text-[#666d80]'
+            <NavLink
+              to={isProcessing ? location.pathname : processingTarget}
+              className={`transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5e4cff] rounded py-1 px-1.5 ${
+                isProcessing ? 'text-[#5e4cff] font-semibold' : 'text-[#666d80] hover:text-[#36394a]'
               }`}
             >
               Processing
-            </span>
+            </NavLink>
 
-            <span
-              className={`transition-colors ${
-                isResults ? 'text-[#5e4cff] font-semibold' : 'text-[#818898]'
+            <NavLink
+              to={isResults ? location.pathname : resultsTarget}
+              className={`transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5e4cff] rounded py-1 px-1.5 ${
+                isResults ? 'text-[#5e4cff] font-semibold' : 'text-[#818898] hover:text-[#36394a]'
               }`}
             >
               Results
-            </span>
+            </NavLink>
           </nav>
         )}
 

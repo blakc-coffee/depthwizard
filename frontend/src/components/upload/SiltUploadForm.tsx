@@ -1,17 +1,13 @@
-import { useState } from 'react';
+﻿import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createSiltJob } from '../../lib/api';
 import { getFriendlyErrorMessage } from '../../lib/errors';
+import { UploadDropzone } from './UploadDropzone';
+import { Badge } from '../common/Badge';
 
-// Simpler than UploadForm.tsx (terrain) by design — the silt use case has
-// no secondary-file/compare flow yet (docs/phase_river_silt.md §4's mockup
-// shows a single drop zone + optional gauge-station field, the latter not
-// wired to anything on the backend yet since Chunk 3's gauge-anchor fusion
-// doesn't exist — omitted here rather than added as dead UI).
-export const SiltUploadForm = () => {
+export const SiltUploadForm: React.FC = () => {
   const navigate = useNavigate();
   const [file, setFile] = useState<File | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,7 +16,8 @@ export const SiltUploadForm = () => {
     setFile(selected);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!file) return;
     setSubmitting(true);
     setError(null);
@@ -35,7 +32,8 @@ export const SiltUploadForm = () => {
 
   return (
     <div className="w-full space-y-6 flex-1">
-      <div className="mb-6">
+      {/* Page Title & Subtitle */}
+      <div className="mb-6 sm:mb-8">
         <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 font-heading mb-1.5">
           River Silt Estimation
         </h1>
@@ -44,59 +42,90 @@ export const SiltUploadForm = () => {
         </p>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 space-y-6 w-full max-w-2xl shadow-xs">
-        <div
-          onDragOver={(e) => {
-            e.preventDefault();
-            setIsDragging(true);
-          }}
-          onDragLeave={() => setIsDragging(false)}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-            const dropped = e.dataTransfer.files?.[0];
-            if (dropped) handleFile(dropped);
-          }}
-          className={`border-2 border-dashed rounded-xl p-8 sm:p-10 flex flex-col items-center justify-center text-center transition-colors cursor-pointer ${
-            isDragging
-              ? 'border-slate-900 bg-slate-50'
-              : 'border-slate-300 hover:border-slate-400 bg-slate-50/50 hover:bg-slate-50'
-          }`}
-        >
-          <label className="cursor-pointer flex flex-col items-center">
-            <div className="w-12 h-12 rounded-full bg-white border border-slate-200 text-slate-700 flex items-center justify-center mb-3 shadow-2xs">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-              </svg>
+      {/* Two Column Input Workspace — unified with Terrain workspace */}
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,360px)] gap-6 items-start w-full">
+        {/* Left Column: River Silt Workspace */}
+        <div className="bg-[#f8fafc] border border-slate-200 rounded-2xl p-5 sm:p-6 space-y-5 w-full">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-900 font-heading mb-0.5">
+                Imagery Inputs
+              </h2>
+              <p className="text-xs text-slate-500">
+                Accepted: GeoTIFF, DEM, PNG, JPEG (Up to 100MB per file)
+              </p>
             </div>
-            <span className="text-sm font-semibold text-slate-900">
-              {file ? file.name : 'Drop river reach image here'}
-            </span>
-            <span className="text-xs text-slate-500 mt-1">or click to browse from device (GeoTIFF / JPG / PNG)</span>
-            <input
-              type="file"
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
+            <UploadDropzone
+              title="Reach Satellite Capture"
+              description="Overhead river reach image or satellite capture for sediment concentration estimation."
+              badge={<Badge variant="text-only" intent="success">Required</Badge>}
+              dotColor="bg-slate-900"
+              dropLabel="Drop river reach image here"
+              acceptedFormats="Accepted: GeoTIFF, DEM, PNG, JPEG (Up to 100MB)"
+              formatHint="or click to browse from device (GeoTIFF / JPG / PNG)"
+              ctaLabel="Choose reach file"
               accept="image/png,image/jpeg,.tif,.tiff"
-              className="hidden"
-              onChange={(e) => handleFile(e.target.files?.[0] || null)}
+              file={file}
+              onFileSelect={handleFile}
+              onRemoveFile={() => handleFile(null)}
+              disabled={submitting}
             />
-          </label>
+          </div>
+
+          {/* Format Specifications footer */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 text-xs text-slate-600 space-y-1.5 shadow-xs">
+            <span className="font-semibold text-slate-900 block mb-1 font-heading">Format Specifications:</span>
+            <p>
+              • <strong>Reach Image:</strong> Multi-spectral or RGB satellite capture (Sentinel-2 / PlanetScope) centered on monitored river reach.
+            </p>
+          </div>
         </div>
 
-        {error && (
-          <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-            {error}
-          </div>
-        )}
+        {/* Right Column: Pre-estimation Checklist & Estimate Button */}
+        <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-6 w-full lg:min-w-[320px] lg:max-w-[360px] shadow-xs">
+          <h2 className="text-base font-semibold text-slate-900 font-heading border-b border-slate-100 pb-3">
+            Before processing
+          </h2>
 
-        <button
-          type="button"
-          disabled={!file || submitting}
-          onClick={handleSubmit}
-          className="w-full bg-[#0F172A] hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-3 rounded-xl shadow-xs transition-colors flex items-center justify-center space-x-2 focus:outline-none focus:ring-2 focus:ring-slate-400"
-        >
-          <span>{submitting ? 'Estimating Sediment Concentration…' : 'Estimate Silt Level'}</span>
-        </button>
-      </div>
+          <div className="space-y-4 text-xs">
+            <div className="flex items-center">
+              <span className="font-mono text-slate-900 font-semibold mr-3">01</span>
+              <span className="font-medium text-slate-800">Overhead reach verified</span>
+            </div>
+            <div className="flex items-center">
+              <span className="font-mono text-slate-900 font-semibold mr-3">02</span>
+              <span className="font-medium text-slate-800">Waterway channel identified</span>
+            </div>
+            <div className="flex items-center">
+              <span className="font-mono text-slate-900 font-semibold mr-3">03</span>
+              <span className="font-medium text-slate-800">Minimal cloud obstruction</span>
+            </div>
+            <div className="flex items-center">
+              <span className="font-mono text-slate-900 font-semibold mr-3">04</span>
+              <span className="font-medium text-slate-800">Surface reflectance readable</span>
+            </div>
+          </div>
+
+          {error && (
+            <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+              {error}
+            </div>
+          )}
+
+          <div className="pt-2">
+            <button
+              type="submit"
+              disabled={!file || submitting}
+              className="w-full bg-[#0F172A] hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold py-3 px-4 rounded-lg shadow-xs transition-colors flex items-center justify-center space-x-2 focus:outline-none focus:ring-2 focus:ring-slate-400"
+            >
+              <span>{submitting ? 'Estimating Silt Concentration…' : 'Estimate Silt Level'}</span>
+            </button>
+          </div>
+        </div>
+      </form>
     </div>
   );
 };
