@@ -38,6 +38,9 @@ const mockStateStore = new Map<
     startTime: number;
     filename: string;
     isGeoTIFF: boolean;
+    hasComparison?: boolean;
+    secondaryJobId?: string | null;
+    compareId?: string | null;
   }
 >();
 
@@ -52,23 +55,36 @@ export async function mockCreateJob(file: File, secondFile?: File | null): Promi
   const isFailedTest = file.name.toLowerCase().includes('corrupt') || file.name.toLowerCase().includes('failed');
   const jobId = isFailedTest ? `mock-failed-job-${Date.now()}` : `mock-job-${Date.now()}`;
   const isGeoTIFF = file.name.endsWith('.tif') || file.name.endsWith('.tiff');
+  const hasComparison = Boolean(secondFile);
+  const secondaryJobId = hasComparison ? `mock-job-sec-${Date.now()}` : null;
+  const compareId = hasComparison ? `mock-compare-${Date.now()}` : null;
 
   mockStateStore.set(jobId, {
     startTime: Date.now(),
     filename: file.name,
     isGeoTIFF,
+    hasComparison,
+    secondaryJobId,
+    compareId,
   });
 
-  if (typeof window !== 'undefined' && secondFile) {
-    sessionStorage.setItem(`depthwizard_secondary_${jobId}`, JSON.stringify({
-      name: secondFile.name,
-      size: secondFile.size,
-    }));
+  if (typeof window !== 'undefined') {
+    sessionStorage.setItem(`depthwizard_is_comparison_${jobId}`, hasComparison ? 'true' : 'false');
+    if (secondFile) {
+      sessionStorage.setItem(`depthwizard_secondary_${jobId}`, JSON.stringify({
+        name: secondFile.name,
+        size: secondFile.size,
+      }));
+    } else {
+      sessionStorage.removeItem(`depthwizard_secondary_${jobId}`);
+    }
   }
 
   return {
     job_id: jobId,
     status: 'queued',
+    secondary_job_id: secondaryJobId,
+    compare_id: compareId,
   };
 }
 
@@ -159,25 +175,45 @@ export async function mockGetJob(jobId: string): Promise<JobStatusResponse> {
 
 export async function mockGetJobResult(jobId: string): Promise<JobResult> {
   const jobState = mockStateStore.get(jobId);
+  const sessionIsComparison = typeof window !== 'undefined'
+    ? sessionStorage.getItem(`depthwizard_is_comparison_${jobId}`)
+    : null;
+  const hasComparison = sessionIsComparison !== null
+    ? sessionIsComparison === 'true'
+    : (jobState?.hasComparison ?? false);
 
   if (jobState) {
-    if (jobState.isGeoTIFF) {
-      return {
-        ...mockAbsoluteJobResult,
-        job_id: jobId,
-      };
-    }
+    const base = jobState.isGeoTIFF ? mockAbsoluteJobResult : mockRelativeJobResult;
     return {
-      ...mockRelativeJobResult,
+      ...base,
       job_id: jobId,
+      metadata: {
+        ...base.metadata,
+        has_comparison: hasComparison,
+        compare_id: jobState.compareId,
+        secondary_job_id: jobState.secondaryJobId,
+      },
     };
   }
 
   if (jobId === mockRelativeJobResult.job_id) {
-    return mockRelativeJobResult;
+    return {
+      ...mockRelativeJobResult,
+      metadata: {
+        ...mockRelativeJobResult.metadata,
+        has_comparison: hasComparison,
+      },
+    };
   }
 
-  return mockAbsoluteJobResult;
+  return {
+    ...mockAbsoluteJobResult,
+    job_id: jobId,
+    metadata: {
+      ...mockAbsoluteJobResult.metadata,
+      has_comparison: hasComparison,
+    },
+  };
 }
 
 export async function mockGetJobs(): Promise<JobListResponse> {

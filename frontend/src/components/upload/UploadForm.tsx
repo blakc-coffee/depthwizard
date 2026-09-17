@@ -94,6 +94,13 @@ export const UploadForm = () => {
     try {
       const response = await createJob(selectedPrimaryFile, selectedSecondaryFile);
       if (response && response.job_id) {
+        if (typeof window !== 'undefined') {
+          const isComparison = Boolean(selectedSecondaryFile || response.compare_id || response.secondary_job_id);
+          sessionStorage.setItem(`depthwizard_is_comparison_${response.job_id}`, isComparison ? 'true' : 'false');
+          if (response.compare_id) {
+            sessionStorage.setItem(`depthwizard_compare_id_${response.job_id}`, response.compare_id);
+          }
+        }
         navigate(`/processing/${encodeURIComponent(response.job_id)}`);
       } else {
         setErrorMessage('Failed to create processing job. Unexpected server response.');

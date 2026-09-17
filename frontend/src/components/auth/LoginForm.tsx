@@ -2,7 +2,11 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 
-export const LoginForm = () => {
+interface LoginFormProps {
+  defaultDestination?: string;
+}
+
+export const LoginForm = ({ defaultDestination = '/app' }: LoginFormProps) => {
   const { signInWithPassword, signUp } = useAuth();
   const navigate = useNavigate();
 
@@ -50,7 +54,7 @@ export const LoginForm = () => {
         return;
       }
 
-      navigate('/app', { replace: true });
+      navigate(defaultDestination, { replace: true });
     } catch {
       setErrorMessage('An unexpected error occurred during authentication.');
       setSubmitting(false);

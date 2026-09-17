@@ -24,6 +24,8 @@ export interface ApiErrorResponse {
 export interface CreateJobResponse {
   job_id: string;
   status: JobStatus;
+  secondary_job_id?: string | null;
+  compare_id?: string | null;
 }
 
 export interface JobStatusResponse {
@@ -109,6 +111,9 @@ export interface JobMetadata {
   max_height: number;
   width: number;
   height: number;
+  has_comparison?: boolean;
+  compare_id?: string | null;
+  secondary_job_id?: string | null;
   [key: string]: unknown;
 }
 

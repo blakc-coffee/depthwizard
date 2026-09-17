@@ -56,6 +56,25 @@ export const ResultsPage = () => {
 
   const isAbsolute = result?.output_type === 'absolute_dsm';
 
+  const isComparisonSession = typeof window !== 'undefined' && jobId
+    ? sessionStorage.getItem(`depthwizard_is_comparison_${jobId}`)
+    : null;
+
+  const hasComparison = isComparisonSession !== null
+    ? isComparisonSession === 'true'
+    : Boolean(
+        result?.metadata?.has_comparison === true ||
+        result?.metadata?.compare_id ||
+        (jobId && typeof window !== 'undefined' && (
+          Boolean(sessionStorage.getItem(`depthwizard_secondary_${jobId}`)) ||
+          Boolean(sessionStorage.getItem(`depthwizard_compare_id_${jobId}`))
+        )) ||
+        (typeof window !== 'undefined' && (
+          window.location.search.includes('compare=true') ||
+          window.location.search.includes('dual=true')
+        ))
+      );
+
   return (
     <AppShell>
       <div className="w-full flex-1 flex flex-col space-y-6">
@@ -73,7 +92,9 @@ export const ResultsPage = () => {
               )}
             </div>
             <p className="text-sm text-slate-500">
-              Interactive 3D DEM elevation scene with temporal disaster comparison.
+              {hasComparison
+                ? 'Interactive 3D DEM elevation scene with temporal disaster comparison.'
+                : 'Interactive 3D DEM elevation scene with georeferenced scale.'}
             </p>
           </div>
 
@@ -91,8 +112,8 @@ export const ResultsPage = () => {
           </div>
         </div>
 
-        {/* 3-Way Disaster Analysis - Continuous Segmented Control (Rule 4: no gaps, no individual borders, active fill) */}
-        {result && !loading && !error && (
+        {/* 3-Way Disaster Analysis - Continuous Segmented Control (rendered only when user uploaded dual images for comparison) */}
+        {result && !loading && !error && hasComparison && (
           <div className="w-full bg-slate-100 rounded-lg p-1">
             <div className="flex items-center" role="tablist" aria-label="Disaster Analysis View Mode">
               <button
@@ -191,7 +212,7 @@ export const ResultsPage = () => {
                 confidenceMapUrl={result.artifacts.confidence_map_url}
                 outputType={result.output_type}
                 maxHeight={result.metadata.max_height}
-                disasterMode={disasterMode}
+                disasterMode={hasComparison ? disasterMode : 'before'}
               />
             </div>
 
@@ -200,10 +221,10 @@ export const ResultsPage = () => {
               {/* Panel Header */}
               <div>
                 <h2 className="text-base font-semibold text-slate-900 font-heading">
-                  {disasterMode === 'difference' ? 'Damage Assessment' : 'Model Evaluation'}
+                  {hasComparison && disasterMode === 'difference' ? 'Damage Assessment' : 'Model Evaluation'}
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  {disasterMode === 'difference'
+                  {hasComparison && disasterMode === 'difference'
                     ? 'Temporal delta heatmap & loss assessment'
                     : 'Georeferenced elevation metrics & scale'}
                 </p>
@@ -211,7 +232,7 @@ export const ResultsPage = () => {
 
 
               {/* Statistical Accuracy / Metrics (Rule 1 & 2: Plain label/value pairs, no boxed cards) */}
-              {disasterMode === 'difference' ? (
+              {hasComparison && disasterMode === 'difference' ? (
                 <div className="space-y-3.5">
                   <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider block">
                     Temporal Delta
