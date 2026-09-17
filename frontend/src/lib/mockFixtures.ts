@@ -1,10 +1,15 @@
 import { JobResult, JobSummary, SiltJobResult, SiltJobSummary } from './types';
+import { getSampleTerrain } from '../viewer/sampleTerrainGenerator';
 
-// Valid 1x1 base64 PNG Data URIs that decode instantly in all browser environments
+// High-relief procedural 3D DEM dataset generated for sample terrain inspection
+const defaultTerrainSample = typeof document !== 'undefined' ? getSampleTerrain('before') : null;
+
 const SAMPLE_TEXTURE_PNG =
+  defaultTerrainSample?.textureUrl ||
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 const SAMPLE_HEIGHTMAP_PNG =
+  defaultTerrainSample?.heightmapUrl ||
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 export const mockAbsoluteJobResult: JobResult = {

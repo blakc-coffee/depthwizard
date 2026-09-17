@@ -209,18 +209,6 @@ export const ResultsPage = () => {
                 </p>
               </div>
 
-              {/* Calibration Notice (Rule 3: Left accent bar 3-4px colored + icon, no rectangular box) */}
-              <div className="border-l-4 border-emerald-500 bg-emerald-50/40 pl-3 py-2 text-xs text-emerald-900">
-                <div className="font-semibold flex items-center gap-1.5">
-                  <svg className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                  SRTM Elevation Calibrated
-                </div>
-                <p className="text-emerald-800/90 text-[11px] mt-0.5 leading-relaxed">
-                  Anchored to georeferenced SRTM reference raster. Units are physical metres.
-                </p>
-              </div>
 
               {/* Statistical Accuracy / Metrics (Rule 1 & 2: Plain label/value pairs, no boxed cards) */}
               {disasterMode === 'difference' ? (

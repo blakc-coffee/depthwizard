@@ -31,11 +31,11 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({ telemetry }) => {
       className="absolute top-3 left-3 z-10 flex flex-col space-y-1.5 pointer-events-none select-none"
     >
       {/* Primary Flight Telemetry Dark Chip HUD */}
-      <div className="bg-slate-900/75 backdrop-blur-md text-white rounded-lg px-2.5 py-1.5 shadow-sm flex items-center space-x-3 pointer-events-auto">
+      <div className="bg-[#1e1b2e]/90 backdrop-blur-md border border-[#2b2742]/60 text-white rounded-lg px-2.5 py-1.5 shadow-sm flex items-center space-x-3 pointer-events-auto">
         {/* Rotating Compass Dial */}
         <div
           aria-label={`Compass heading ${headingDeg} degrees ${cardinal}`}
-          className="relative w-7 h-7 rounded-full bg-slate-800/80 flex items-center justify-center flex-shrink-0"
+          className="relative w-7 h-7 rounded-full bg-[#25213b]/80 border border-[#363052]/50 flex items-center justify-center flex-shrink-0"
         >
           <div
             className="w-full h-full flex items-center justify-center transition-transform duration-100 ease-out"
@@ -44,7 +44,7 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({ telemetry }) => {
             {/* Compass Needle */}
             <div className="relative w-2 h-5 flex flex-col items-center">
               <div className="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-b-[8px] border-b-[#818cf8]" />
-              <div className="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[8px] border-t-slate-500" />
+              <div className="w-0 h-0 border-l-[3px] border-l-transparent border-r-[3px] border-r-transparent border-t-[8px] border-t-[#4f476e]" />
             </div>
           </div>
           <span className="absolute -top-1 text-[7px] font-mono font-bold text-indigo-400">N</span>
@@ -65,15 +65,15 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({ telemetry }) => {
         </div>
 
         {/* Subtle Separator */}
-        <div className="h-6 w-px bg-slate-700/60" />
+        <div className="h-6 w-px bg-[#2f2a47]" />
 
         {/* Speed Mode Badge */}
         <div className="flex items-center">
           <span
             className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-full ${
               isTurbo
-                ? 'bg-indigo-500/30 text-indigo-300 font-bold'
-                : 'bg-slate-800/90 text-slate-300'
+                ? 'bg-indigo-500/25 border border-indigo-400/30 text-indigo-300 font-bold'
+                : 'bg-[#28233d] border border-[#3b3456]/60 text-slate-200'
             }`}
           >
             {isTurbo ? '⚡ Turbo' : '1x Cruise'}
@@ -82,12 +82,12 @@ export const FlightHUD: React.FC<FlightHUDProps> = ({ telemetry }) => {
       </div>
 
       {/* Flight Key Hints Banner - Dark Chip */}
-      <div className="bg-slate-900/60 backdrop-blur-md rounded-md px-2.5 py-1 text-[10px] text-slate-300 flex items-center space-x-1.5 pointer-events-auto">
+      <div className="bg-[#1e1b2e]/90 backdrop-blur-md border border-[#2b2742]/60 rounded-md px-2.5 py-1 text-[10px] text-slate-300 flex items-center space-x-1.5 pointer-events-auto">
         <span className="w-1.5 h-1.5 rounded-full bg-indigo-400" />
         <span>
-          <kbd className="font-mono bg-slate-800 text-slate-200 px-1 py-0.5 rounded text-[9px]">WASD</kbd> fly ·{' '}
-          <kbd className="font-mono bg-slate-800 text-slate-200 px-1 py-0.5 rounded text-[9px]">Q</kbd>/<kbd className="font-mono bg-slate-800 text-slate-200 px-1 py-0.5 rounded text-[9px]">E</kbd> alt ·{' '}
-          <kbd className="font-mono bg-slate-800 text-slate-200 px-1 py-0.5 rounded text-[9px]">Shift</kbd> turbo
+          <kbd className="font-mono bg-[#28233d] border border-[#3b3456]/60 text-slate-200 px-1 py-0.5 rounded text-[9px]">WASD</kbd> fly ·{' '}
+          <kbd className="font-mono bg-[#28233d] border border-[#3b3456]/60 text-slate-200 px-1 py-0.5 rounded text-[9px]">Q</kbd>/<kbd className="font-mono bg-[#28233d] border border-[#3b3456]/60 text-slate-200 px-1 py-0.5 rounded text-[9px]">E</kbd> alt ·{' '}
+          <kbd className="font-mono bg-[#28233d] border border-[#3b3456]/60 text-slate-200 px-1 py-0.5 rounded text-[9px]">Shift</kbd> turbo
         </span>
       </div>
     </div>

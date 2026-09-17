@@ -115,14 +115,14 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
       <FlightHUD telemetry={telemetry} />
 
       {/* Floating Center View Mode Pill Switcher (Normal / Slope) - Continuous Segmented Pill */}
-      <div className="absolute top-3.5 left-1/2 -translate-x-1/2 z-10 flex items-center bg-slate-900/75 backdrop-blur-md rounded-full p-0.5 shadow-sm">
+      <div className="absolute top-3.5 left-1/2 -translate-x-1/2 z-10 flex items-center bg-white/90 backdrop-blur-md border border-slate-200/80 rounded-full p-1 shadow-sm">
         <button
           type="button"
           onClick={() => handleModeChange('3d')}
           className={`px-3.5 py-1 text-xs font-medium rounded-full transition-all focus:outline-none ${
             activeMode === '3d'
               ? 'bg-[#5e4cff] text-white shadow-xs font-semibold'
-              : 'text-slate-300 hover:text-white'
+              : 'text-slate-600 hover:text-slate-900 font-medium'
           }`}
         >
           Normal
@@ -133,7 +133,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
           className={`px-3.5 py-1 text-xs font-medium rounded-full transition-all focus:outline-none ${
             activeMode === '2d_heightmap'
               ? 'bg-[#5e4cff] text-white shadow-xs font-semibold'
-              : 'text-slate-300 hover:text-white'
+              : 'text-slate-600 hover:text-slate-900 font-medium'
           }`}
         >
           Slope
@@ -141,7 +141,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
       </div>
 
       {/* Floating Top-Right Controls: Relief & Reset - Dark Chip */}
-      <div className="absolute top-3.5 right-3.5 z-10 flex items-center space-x-2 bg-slate-900/75 backdrop-blur-md text-white rounded-full px-3 py-1 shadow-sm text-xs">
+      <div className="absolute top-3.5 right-3.5 z-10 flex items-center space-x-2 bg-[#1e1b2e]/90 backdrop-blur-md border border-[#2b2742]/60 text-white rounded-full px-3 py-1 shadow-sm text-xs">
         <span className="text-slate-400 font-medium select-none text-[11px]">Relief:</span>
         <input
           type="range"
@@ -150,13 +150,13 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
           step="0.1"
           value={exaggeration}
           onChange={handleExaggerationChange}
-          className="w-16 sm:w-20 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[#5e4cff]"
+          className="w-16 sm:w-20 h-1 bg-[#28233d] rounded-lg appearance-none cursor-pointer accent-[#5e4cff]"
           title={`Vertical Exaggeration: ${exaggeration.toFixed(1)}x`}
         />
         <span className="font-mono text-[11px] font-semibold text-slate-200 min-w-[28px] text-right">
           {exaggeration.toFixed(1)}x
         </span>
-        <div className="h-3 w-px bg-slate-700 mx-0.5" />
+        <div className="h-3 w-px bg-[#2f2a47] mx-0.5" />
         <button
           type="button"
           onClick={handleResetView}
@@ -166,27 +166,11 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
         </button>
       </div>
 
-      {/* Difference Map Legend Overlay - Dark Chip */}
-      {disasterMode === 'difference' && (
-        <div className="absolute top-12 right-3.5 z-10 bg-slate-900/75 backdrop-blur-md px-3 py-1.5 rounded-lg shadow-sm text-[11px] text-white flex items-center space-x-3 pointer-events-none select-none animate-in fade-in duration-150">
-          <div className="flex items-center space-x-1.5">
-            <span className="w-2 h-2 rounded-full bg-rose-500 shadow-2xs" />
-            <span className="font-semibold text-rose-300">Collapse</span>
-          </div>
-          <div className="flex items-center space-x-1.5">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 shadow-2xs" />
-            <span className="font-semibold text-cyan-300">Flooded</span>
-          </div>
-          <div className="flex items-center space-x-1.5">
-            <span className="w-2 h-2 rounded-full bg-slate-400 shadow-2xs" />
-            <span className="font-medium text-slate-400">Stable</span>
-          </div>
-        </div>
-      )}
+
 
       {/* After Disaster State Overlay Badge - Dark Chip */}
       {disasterMode === 'after' && (
-        <div className="absolute top-12 right-3.5 z-10 bg-slate-900/75 backdrop-blur-md px-3 py-1 rounded-full shadow-sm text-[11px] text-slate-200 pointer-events-none select-none animate-in fade-in duration-150">
+        <div className="absolute top-12 right-3.5 z-10 bg-[#1e1b2e]/90 backdrop-blur-md border border-[#2b2742]/60 px-3 py-1 rounded-full shadow-sm text-[11px] text-slate-200 pointer-events-none select-none animate-in fade-in duration-150">
           <span className="font-medium">Post-Disaster View</span>
         </div>
       )}
@@ -241,7 +225,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
       <div ref={containerRef} className="w-full h-full absolute inset-0 cursor-grab active:cursor-grabbing" />
 
       {/* Floating Bottom Navigation Hint - Dark Chip */}
-      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 bg-slate-900/60 backdrop-blur-md px-3.5 py-1 rounded-full text-[10px] text-slate-300 pointer-events-none select-none shadow-sm whitespace-nowrap">
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 bg-[#1e1b2e]/90 backdrop-blur-md border border-[#2b2742]/60 px-3.5 py-1 rounded-full text-[10px] text-slate-300 pointer-events-none select-none shadow-sm whitespace-nowrap">
         WASD/Arrows to fly · Q/E altitude · Drag to orbit · Scroll to zoom
       </div>
     </div>
