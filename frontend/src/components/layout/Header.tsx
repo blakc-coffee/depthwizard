@@ -27,9 +27,8 @@ export const Header = () => {
           </span>
         </NavLink>
 
-        {/* Use-case switcher — Terrain vs River Silt are separate pipelines
-            (docs/phase_river_silt.md §4), not steps in one flow. */}
-        {!isAuthPage && (
+        {/* Use-case switcher — Hidden on Results page as requested */}
+        {!isAuthPage && !isResults && (
           <div className="hidden sm:flex items-center bg-[#f6f8fa] border border-[#cdd2d9] rounded-full p-1 text-xs font-medium">
             <NavLink
               to="/app"
@@ -50,8 +49,8 @@ export const Header = () => {
           </div>
         )}
 
-        {/* Workflow Navigation - ONLY displayed on authenticated app pages */}
-        {!isAuthPage && (
+        {/* Workflow Navigation — Hidden on Results page as requested */}
+        {!isAuthPage && !isResults && (
           <nav aria-label="Main Navigation" className="hidden sm:flex items-center space-x-8 text-xs font-medium">
             <NavLink
               to={isSiltUseCase ? '/silt' : '/app'}

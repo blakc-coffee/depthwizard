@@ -119,6 +119,11 @@ export class TerrainSceneManager {
     const fillLight = new THREE.DirectionalLight(0xdde3ec, 0.4);
     fillLight.position.set(-14, 12, -12);
     this.scene.add(fillLight);
+
+    // Soft upward fill light to illuminate terrain base/underside, preventing harsh black shadows
+    const bottomFillLight = new THREE.DirectionalLight(0xa5b4fc, 0.45);
+    bottomFillLight.position.set(0, -18, 0);
+    this.scene.add(bottomFillLight);
   }
 
   private setupResizeObserver() {

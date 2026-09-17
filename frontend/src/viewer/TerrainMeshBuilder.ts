@@ -397,11 +397,11 @@ export async function buildTerrainMesh(
     side: THREE.DoubleSide,
   });
 
-  // Skirt & Pedestal base material: architectural dark graphite slate with DoubleSide rendering
+  // Skirt & Pedestal base material: dark navy/slate tone matching the HUD chips
   const baseMaterial = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#383b48'),
-    roughness: 0.85,
-    metalness: 0.1,
+    color: new THREE.Color('#1e2436'),
+    roughness: 0.76,
+    metalness: 0.12,
     flatShading: false,
     side: THREE.DoubleSide,
   });
