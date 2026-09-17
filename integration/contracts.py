@@ -13,12 +13,14 @@ Celery, or database internals here — this module must stay importable by
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 VALID_OUTPUT_TYPES = {"relative_dsm", "absolute_dsm"}
 VALID_HEIGHT_UNITS = {"m", "relative"}
 REQUIRED_METADATA_KEYS = {"height_units", "min_height", "max_height", "width", "height"}
+REQUIRED_COMPARE_METADATA_KEYS = {"height_units", "max_loss", "max_gain", "changed_area_fraction", "threshold"}
 
 
 @dataclass
@@ -85,6 +87,64 @@ class PipelineResult:
 
         if self.metrics is not None and not self.metrics:
             problems.append("metrics must be null (None) when absent, never an empty object (§9.6)")
+
+        return problems
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+@dataclass
+class CompareResult:
+    """before + after heightmaps in -> this out (Merged PRD §8, §9.9).
+
+    Produced by ml/change_detection/diff.py via integration/compare_runner.py.
+    `diff_map_path` is a PNG pixel-aligned with the before job's heightmap.
+    """
+
+    diff_map_path: str
+    metadata: dict[str, Any] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+
+    def validate(self, *, both_absolute: bool) -> list[str]:
+        """`both_absolute`: both source jobs are absolute_dsm. Only then may a
+        change be reported in metres; otherwise it's directional only and must
+        say so in `warnings` (§9.9)."""
+        problems: list[str] = []
+
+        if not self.diff_map_path:
+            problems.append("diff_map_path is required")
+
+        missing = REQUIRED_COMPARE_METADATA_KEYS - self.metadata.keys()
+        if missing:
+            problems.append(f"metadata is missing required keys: {sorted(missing)}")
+
+        units = self.metadata.get("height_units")
+        if "height_units" in self.metadata and units not in VALID_HEIGHT_UNITS:
+            problems.append(f"metadata.height_units must be one of {sorted(VALID_HEIGHT_UNITS)}, got {units!r}")
+        if units == "m" and not both_absolute:
+            problems.append("height_units == 'm' requires both source jobs to be absolute_dsm")
+        if not both_absolute and not self.warnings:
+            problems.append("a warning is required when either source job is relative (§9.9)")
+
+        ranges = {
+            "max_loss": (lambda v: v <= 0, "must be <= 0"),
+            "max_gain": (lambda v: v >= 0, "must be >= 0"),
+            "changed_area_fraction": (lambda v: 0 <= v <= 1, "must be between 0 and 1"),
+            "threshold": (lambda v: v > 0, "must be > 0"),
+        }
+        for key, (in_range, rule) in ranges.items():
+            if key not in self.metadata:
+                continue
+            value = self.metadata[key]
+            if not _is_number(value):
+                problems.append(f"metadata.{key} must be a finite number, got {value!r}")
+            elif not in_range(value):
+                problems.append(f"metadata.{key} {rule}, got {value!r}")
 
         return problems
 
