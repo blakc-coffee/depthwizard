@@ -174,9 +174,8 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
 
         {/* After Disaster Event Overlay Badge */}
         {disasterMode === 'after' && (
-          <div className="absolute top-3 right-3 z-10 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-slate-200 shadow-2xs text-[11px] text-slate-800 flex items-center space-x-2 pointer-events-none select-none animate-in fade-in duration-150">
-            <span className="w-2 h-2 rounded-full bg-amber-500" />
-            <span className="font-semibold text-amber-900">Post-Disaster State</span>
+          <div className="absolute top-3 right-3 z-10 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-slate-200 shadow-2xs text-[11px] text-slate-700 flex items-center space-x-1.5 pointer-events-none select-none animate-in fade-in duration-150">
+            <span className="font-medium text-slate-700">Post-Disaster State</span>
           </div>
         )}
 
@@ -286,13 +285,6 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
           }`}
         >
           Contour
-        </button>
-
-        <button
-          type="button"
-          className="px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400"
-        >
-          Validation
         </button>
       </div>
     </div>
