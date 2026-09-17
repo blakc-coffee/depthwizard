@@ -58,53 +58,73 @@ export const SiltResultsPage = () => {
   return (
     <AppShell>
       <div className="w-full flex-1 flex flex-col space-y-6">
-        <div className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[#cdd2d9] flex-shrink-0">
+        <div className="w-full flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-200 flex-shrink-0">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-3 mb-1">
-              <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-[#36394a] font-heading">
+              <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 font-heading">
                 River Silt Results
               </h1>
               {result && (
-                <span
-                  className={`text-xs px-3 py-1 rounded-full font-medium ${
-                    isAbsolute
-                      ? 'bg-[#dfdbff] text-[#5e4cff] border border-[#c8ccf3]'
-                      : 'bg-amber-50 text-amber-800 border border-amber-200'
-                  }`}
-                >
-                  {isAbsolute ? 'Absolute SSC' : 'Relative Silt Index'}
-                </span>
+                <>
+                  <span
+                    className={`text-xs px-3 py-1 rounded-full font-medium ${
+                      isAbsolute
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : 'bg-amber-50 text-amber-800 border border-amber-200'
+                    }`}
+                  >
+                    {isAbsolute ? 'Absolute SSC' : 'Relative Silt Index'}
+                  </span>
+                  <span className="text-xs px-3 py-1 rounded-full font-medium bg-slate-100 text-slate-700 border border-slate-200">
+                    Waterway Flood Risk
+                  </span>
+                </>
               )}
             </div>
-            <p className="text-sm text-[#666d80]">Estimated suspended sediment concentration for the uploaded reach.</p>
+            <p className="text-sm text-slate-500">
+              Estimated suspended sediment concentration and cross-channel deposition profile.
+            </p>
           </div>
 
           <div className="flex items-center space-x-3 self-start sm:self-center">
-            <span className="text-xs font-mono text-[#818898] hidden sm:inline-block">Job: {jobId || 'Unknown'}</span>
+            <span className="text-xs font-mono text-slate-400 hidden sm:inline-block">
+              Job: {jobId || 'Unknown'}
+            </span>
             <button
               type="button"
               onClick={handleReturnToWorkspace}
-              className="text-xs bg-white hover:bg-[#f6f8fa] border border-[#cdd2d9] text-[#36394a] font-medium px-4 py-2 rounded-[8px] transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] flex-shrink-0"
+              className="text-xs bg-[#0F172A] hover:bg-slate-800 text-white font-medium px-4 py-2 rounded-lg shadow-xs transition-colors flex-shrink-0"
             >
-              New Upload
+              New Silt Upload
             </button>
           </div>
         </div>
 
         {loading && (
-          <div className="flex items-center justify-center py-24 text-sm text-[#666d80]">Loading results…</div>
+          <div className="flex items-center justify-center py-24 text-sm text-slate-500">
+            <svg
+              className="animate-spin h-5 w-5 text-slate-900 mr-2"
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+            </svg>
+            Loading silt analysis…
+          </div>
         )}
 
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-[12px] p-6 text-sm text-red-700 max-w-2xl">
+          <div className="bg-rose-50 border border-rose-200 rounded-xl p-6 text-sm text-rose-700 max-w-2xl">
             {error}
           </div>
         )}
 
         {result && (
-          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_320px] gap-6 items-start">
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px] gap-6 items-start">
             {/* Main: channel shape + sediment level is the hero view */}
-            <div className="min-h-[480px] xl:min-h-[600px] flex flex-col">
+            <div className="min-h-[520px] xl:min-h-[620px] flex flex-col">
               <SiltCrossSectionViewer
                 crossSectionProfile={result.cross_section_profile}
                 predictedSscMgL={result.predicted_ssc_mg_l}
@@ -112,28 +132,37 @@ export const SiltResultsPage = () => {
             </div>
 
             {/* Side panel: source photo (reference only) + stats + dredging */}
-            <div className="w-full xl:w-80 flex-shrink-0 flex flex-col gap-4">
-              <div className="bg-white rounded-[8px] border border-[#cdd2d9] p-3 shadow-2xs">
-                <h4 className="text-xs font-semibold text-[#36394a] font-heading mb-2">Source Image</h4>
+            <div className="w-full flex flex-col gap-4">
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+                <h4 className="text-xs font-semibold text-slate-900 font-heading mb-2">Aerial Reach Imagery</h4>
                 <img
                   src={result.artifacts.texture_url}
                   alt="Uploaded river reach"
-                  className="w-full rounded-[6px] border border-[#cdd2d9]/70 object-cover"
+                  className="w-full h-44 rounded-lg border border-slate-200/80 object-cover"
                 />
+                <span className="text-[11px] text-slate-400 mt-1.5 block">
+                  Sentinel-2 L2A Overhead Reach
+                </span>
               </div>
 
-              <div className="bg-white rounded-[8px] border border-[#cdd2d9] p-3.5 shadow-2xs">
-                <h4 className="text-xs font-semibold text-[#36394a] font-heading mb-2">Silt Summary</h4>
-                <dl className="space-y-1.5 text-xs">
-                  <div className="flex justify-between">
-                    <dt className="text-[#666d80]">Predicted SSC</dt>
-                    <dd className="font-mono font-medium text-[#36394a]">
+              <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+                <h4 className="text-xs font-semibold text-slate-900 font-heading mb-2.5">Concentration Analytics</h4>
+                <dl className="space-y-2 text-xs">
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-100">
+                    <dt className="text-slate-500">Predicted SSC</dt>
+                    <dd className="font-mono font-bold text-base text-slate-900">
                       {result.predicted_ssc_mg_l.toFixed(1)} mg/L
                     </dd>
                   </div>
-                  <div className="flex justify-between">
-                    <dt className="text-[#666d80]">Output type</dt>
-                    <dd className="font-mono font-medium text-[#36394a]">{isAbsolute ? 'Absolute' : 'Relative'}</dd>
+                  <div className="flex justify-between items-center">
+                    <dt className="text-slate-500">Observation Type</dt>
+                    <dd className="font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                      {isAbsolute ? 'Absolute Metric' : 'Relative Index'}
+                    </dd>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <dt className="text-slate-500">Channel Siltation</dt>
+                    <dd className="font-mono text-slate-700">Monitored Profile</dd>
                   </div>
                 </dl>
               </div>
@@ -148,7 +177,7 @@ export const SiltResultsPage = () => {
         )}
 
         {result && result.warnings.length > 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-[12px] p-4 space-y-1.5">
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-1.5">
             {result.warnings.map((w, i) => (
               <p key={i} className="text-xs text-amber-800">{w}</p>
             ))}

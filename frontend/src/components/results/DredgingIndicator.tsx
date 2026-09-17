@@ -29,28 +29,28 @@ export const DredgingIndicator: React.FC<DredgingIndicatorProps> = ({ level, lab
   const highPct = (HIGH_THRESHOLD / GAUGE_MAX) * 100;
 
   return (
-    <div className="bg-white rounded-[8px] border border-[#cdd2d9] p-3.5 shadow-2xs space-y-3.5">
-      <h4 className="text-xs font-semibold text-[#36394a] font-heading">Dredging Recommendation</h4>
+    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3.5">
+      <h4 className="text-xs font-semibold text-slate-900 font-heading">Dredging Recommendation</h4>
 
       {/* Indicator 1: colored badge */}
-      <div className={`rounded-[8px] border px-3 py-2 text-xs ${colors.bg} ${colors.text} ${colors.border}`}>
+      <div className={`rounded-lg border px-3 py-2 text-xs ${colors.bg} ${colors.text} ${colors.border}`}>
         <span className="font-semibold uppercase tracking-wide">{level}</span>
         <p className="mt-0.5 text-[11px] leading-relaxed">{label}</p>
       </div>
 
       {/* Indicator 2: gauge/meter positioned against the real tercile thresholds */}
       <div>
-        <div className="relative h-2.5 rounded-full bg-[#eceff3] overflow-hidden">
-          <div className="absolute inset-y-0 left-0 bg-green-400" style={{ width: `${lowPct}%` }} />
+        <div className="relative h-2.5 rounded-full bg-slate-100 overflow-hidden border border-slate-200/50">
+          <div className="absolute inset-y-0 left-0 bg-emerald-400" style={{ width: `${lowPct}%` }} />
           <div className="absolute inset-y-0 bg-amber-400" style={{ left: `${lowPct}%`, width: `${highPct - lowPct}%` }} />
-          <div className="absolute inset-y-0 bg-red-400" style={{ left: `${highPct}%`, right: 0 }} />
+          <div className="absolute inset-y-0 bg-rose-400" style={{ left: `${highPct}%`, right: 0 }} />
           <div
-            className="absolute top-1/2 -translate-y-1/2 w-1 h-4 bg-[#36394a] rounded-full"
-            style={{ left: `calc(${gaugePct}% - 1px)` }}
+            className="absolute top-1/2 -translate-y-1/2 w-1.5 h-4 bg-slate-900 rounded-full shadow-xs"
+            style={{ left: `calc(${gaugePct}% - 2px)` }}
             title={`${predictedSscMgL.toFixed(1)} mg/L`}
           />
         </div>
-        <div className="flex justify-between text-[10px] text-[#a3a9b5] mt-1">
+        <div className="flex justify-between text-[10px] text-slate-400 mt-1.5">
           <span>0</span>
           <span>{LOW_THRESHOLD} mg/L</span>
           <span>{HIGH_THRESHOLD} mg/L</span>

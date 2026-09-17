@@ -46,7 +46,7 @@ export class TerrainSceneManager {
 
     // Scene with soft, clean architectural gallery gray backdrop
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#e2e6eb');
+    this.scene.background = new THREE.Color('#F1F5F9');
 
     // Camera
     const width = container.clientWidth || 800;
@@ -574,10 +574,10 @@ export class TerrainSceneManager {
       ctx.fillRect(0, 0, 512, 512);
     }
 
-    // Draw high-precision vector topographic contour curves (#5e4cff)
-    ctx.strokeStyle = '#5e4cff';
+    // Draw high-precision vector topographic contour curves
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
     ctx.lineWidth = 1.5;
-    ctx.globalAlpha = 0.8;
+    ctx.globalAlpha = 0.85;
 
     for (let r = 25; r < 250; r += 24) {
       ctx.beginPath();
@@ -594,7 +594,7 @@ export class TerrainSceneManager {
 
     // Add topographic contour elevation labels
     ctx.font = 'bold 9px monospace';
-    ctx.fillStyle = '#36394a';
+    ctx.fillStyle = '#334155';
     ctx.globalAlpha = 0.9;
     ctx.fillText('120m', 258, 256 - 120);
     ctx.fillText('140m', 258, 256 - 72);

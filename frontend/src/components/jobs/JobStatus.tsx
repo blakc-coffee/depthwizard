@@ -64,12 +64,12 @@ export const JobStatus: React.FC<JobStatusProps> = ({
 
   return (
     <div className="w-full space-y-6 flex-1">
-      {/* Top Header matching image_4.png & Playwright test requirement */}
+      {/* Top Header */}
       <div className="mb-6">
-        <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-[#36394a] font-heading mb-2">
+        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 font-heading mb-2">
           Terrain Reconstruction Pipeline
         </h1>
-        <p className="text-sm text-[#666d80]">
+        <p className="text-sm text-slate-500">
           The model is building a terrain surface from the uploaded image.
         </p>
       </div>
@@ -77,7 +77,7 @@ export const JobStatus: React.FC<JobStatusProps> = ({
       {/* Progress Bar Row */}
       <div className="flex items-center space-x-4 mb-8">
         <div
-          className="flex-1 bg-[#eceff3] rounded-full h-3 overflow-hidden border border-[#cdd2d9]/40"
+          className="flex-1 bg-slate-100 rounded-full h-3 overflow-hidden border border-slate-200"
           role="progressbar"
           aria-valuenow={currentProgress}
           aria-valuemin={0}
@@ -85,11 +85,11 @@ export const JobStatus: React.FC<JobStatusProps> = ({
           aria-label="Processing progress"
         >
           <div
-            className="bg-[#5e4cff] h-full transition-all duration-300 ease-out rounded-full"
+            className="bg-[#0F172A] h-full transition-all duration-300 ease-out rounded-full"
             style={{ width: `${currentProgress}%` }}
           />
         </div>
-        <span className="font-mono text-sm font-semibold text-[#36394a] min-w-[40px] text-right">
+        <span className="font-mono text-sm font-semibold text-slate-900 min-w-[40px] text-right">
           {currentProgress}%
         </span>
       </div>
@@ -98,9 +98,9 @@ export const JobStatus: React.FC<JobStatusProps> = ({
         <div
           role="alert"
           aria-live="assertive"
-          className="bg-[#FEE2E2] border border-[#FCA5A5] rounded-[12px] p-6 space-y-4 max-w-2xl mx-auto text-left"
+          className="bg-rose-50 border border-rose-200 rounded-xl p-6 space-y-4 max-w-2xl mx-auto text-left"
         >
-          <div className="flex items-start space-x-3 text-[#991B1B]">
+          <div className="flex items-start space-x-3 text-rose-800">
             <svg
               className="w-5 h-5 flex-shrink-0 mt-0.5"
               fill="none"
@@ -121,12 +121,12 @@ export const JobStatus: React.FC<JobStatusProps> = ({
             </div>
           </div>
 
-          <div className="pt-3 border-t border-[#FCA5A5]/60 flex flex-wrap gap-3">
+          <div className="pt-3 border-t border-rose-200 flex flex-wrap gap-3">
             {onReturnToWorkspace && (
               <button
                 type="button"
                 onClick={onReturnToWorkspace}
-                className="bg-[#5e4cff] hover:bg-[#5e4cff]/90 text-white text-xs font-medium px-4 py-2 rounded-[8px] transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
+                className="bg-[#0F172A] hover:bg-slate-800 text-white text-xs font-medium px-4 py-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400"
               >
                 Return to Workspace
               </button>
@@ -135,7 +135,7 @@ export const JobStatus: React.FC<JobStatusProps> = ({
               <button
                 type="button"
                 onClick={onRetry}
-                className="bg-white hover:bg-[#f6f8fa] border border-[#cdd2d9] text-[#36394a] text-xs font-medium px-4 py-2 rounded-[8px] transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
+                className="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-medium px-4 py-2 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400"
               >
                 Retry Job
               </button>
@@ -143,7 +143,7 @@ export const JobStatus: React.FC<JobStatusProps> = ({
           </div>
         </div>
       ) : (
-        /* Two Column Stage Grid matching image_4.png */
+        /* Two Column Stage Grid */
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(320px,360px)] gap-6 items-start w-full">
           {/* Left Stage Cards */}
           <div className="space-y-3 w-full">
@@ -154,18 +154,18 @@ export const JobStatus: React.FC<JobStatusProps> = ({
               return (
                 <div
                   key={st.id}
-                  className={`p-4 rounded-[12px] border transition-colors flex items-center justify-between ${
+                  className={`p-4 rounded-xl border transition-colors flex items-center justify-between ${
                     isCurrent
-                      ? 'bg-[#5e4cff] text-white border-[#5e4cff]'
-                      : 'bg-white border-[#cdd2d9] text-[#36394a]'
+                      ? 'bg-[#0F172A] text-white border-slate-900 shadow-xs'
+                      : 'bg-white border-slate-200 text-slate-800 shadow-2xs'
                   }`}
                 >
                   <div className="flex items-center space-x-3">
                     <span
-                      className={`w-8 h-8 rounded-[8px] font-mono text-xs font-semibold flex items-center justify-center ${
+                      className={`w-8 h-8 rounded-lg font-mono text-xs font-semibold flex items-center justify-center ${
                         isCurrent
-                          ? 'bg-white/20 text-white'
-                          : 'bg-[#dfdbff] text-[#5e4cff]'
+                          ? 'bg-white/15 text-white'
+                          : 'bg-slate-100 text-slate-700'
                       }`}
                     >
                       {st.num}
@@ -173,14 +173,14 @@ export const JobStatus: React.FC<JobStatusProps> = ({
                     <div>
                       <h3
                         className={`text-sm font-semibold font-heading ${
-                          isCurrent ? 'text-white' : 'text-[#36394a]'
+                          isCurrent ? 'text-white' : 'text-slate-900'
                         }`}
                       >
                         {st.label}
                       </h3>
                       <span
                         className={`text-xs ${
-                          isCurrent ? 'text-white/80' : 'text-[#818898]'
+                          isCurrent ? 'text-slate-300' : 'text-slate-400'
                         }`}
                       >
                         {isPast ? 'Complete' : isCurrent ? 'In progress' : 'Queued'}
@@ -196,17 +196,17 @@ export const JobStatus: React.FC<JobStatusProps> = ({
           <div
             aria-live="polite"
             aria-atomic="true"
-            className="bg-white border border-[#cdd2d9] rounded-[12px] p-6 space-y-4 w-full lg:min-w-[320px] lg:max-w-[360px]"
+            className="bg-white border border-slate-200 rounded-xl p-6 space-y-4 w-full lg:min-w-[320px] lg:max-w-[360px] shadow-xs"
           >
-            <span className="text-xs font-mono uppercase tracking-wider text-[#818898] block">
+            <span className="text-xs font-mono uppercase tracking-wider text-slate-400 block">
               CURRENT STAGE
             </span>
 
-            <h2 className="text-xl font-semibold text-[#36394a] font-heading">
+            <h2 className="text-xl font-semibold text-slate-900 font-heading">
               {formatStageLabel(stage)}
             </h2>
 
-            <p className="text-xs text-[#666d80] leading-relaxed">
+            <p className="text-xs text-slate-500 leading-relaxed">
               {stage === 'calibrating' || stage === 'fetching_reference'
                 ? 'Fusing scene statistics with reference elevation signals.'
                 : stage === 'estimating_depth'
@@ -214,7 +214,7 @@ export const JobStatus: React.FC<JobStatusProps> = ({
                 : 'Processing geospatial data pipeline for 3D reconstruction.'}
             </p>
 
-            <div className="bg-[#dfdbff]/50 border border-[#c8ccf3] text-[#5e4cff] rounded-[8px] p-3 text-xs font-mono font-medium">
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 text-xs font-mono font-medium">
               Estimated time remaining · 18 s
             </div>
           </div>

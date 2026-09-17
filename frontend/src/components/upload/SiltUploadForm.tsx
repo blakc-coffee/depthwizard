@@ -36,15 +36,15 @@ export const SiltUploadForm = () => {
   return (
     <div className="w-full space-y-6 flex-1">
       <div className="mb-6">
-        <h1 className="text-3xl sm:text-4xl font-semibold tracking-tight text-[#36394a] font-heading mb-1.5">
+        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 font-heading mb-1.5">
           River Silt Estimation
         </h1>
-        <p className="text-sm text-[#666d80] max-w-2xl">
-          Upload an overhead river reach image to estimate suspended sediment concentration (SSC).
+        <p className="text-sm text-slate-500 max-w-2xl">
+          Upload an overhead river reach image or satellite capture to estimate suspended sediment concentration (SSC).
         </p>
       </div>
 
-      <div className="bg-[#f6f8fa] border border-[#cdd2d9] rounded-[12px] p-5 sm:p-6 space-y-5 w-full max-w-2xl">
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 space-y-6 w-full max-w-2xl shadow-xs">
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -57,20 +57,22 @@ export const SiltUploadForm = () => {
             const dropped = e.dataTransfer.files?.[0];
             if (dropped) handleFile(dropped);
           }}
-          className={`bg-white border-2 border-dashed rounded-[12px] p-8 flex flex-col items-center justify-center text-center transition-colors cursor-pointer ${
-            isDragging ? 'border-[#5e4cff] bg-[#f6f8fa]' : 'border-[#cdd2d9]'
+          className={`border-2 border-dashed rounded-xl p-8 sm:p-10 flex flex-col items-center justify-center text-center transition-colors cursor-pointer ${
+            isDragging
+              ? 'border-slate-900 bg-slate-50'
+              : 'border-slate-300 hover:border-slate-400 bg-slate-50/50 hover:bg-slate-50'
           }`}
         >
           <label className="cursor-pointer flex flex-col items-center">
-            <div className="w-10 h-10 rounded-full bg-[#f6f8fa] border border-[#cdd2d9] text-[#5e4cff] flex items-center justify-center mb-2.5">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+            <div className="w-12 h-12 rounded-full bg-white border border-slate-200 text-slate-700 flex items-center justify-center mb-3 shadow-2xs">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
             </div>
-            <span className="text-sm font-medium text-[#36394a]">
-              {file ? file.name : 'Drop river reach image (GeoTIFF / JPG / PNG)'}
+            <span className="text-sm font-semibold text-slate-900">
+              {file ? file.name : 'Drop river reach image here'}
             </span>
-            <span className="text-xs text-[#818898] mt-1">or click to browse</span>
+            <span className="text-xs text-slate-500 mt-1">or click to browse from device (GeoTIFF / JPG / PNG)</span>
             <input
               type="file"
               accept="image/png,image/jpeg,.tif,.tiff"
@@ -81,7 +83,7 @@ export const SiltUploadForm = () => {
         </div>
 
         {error && (
-          <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-[8px] px-3 py-2">
+          <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
             {error}
           </div>
         )}
@@ -90,9 +92,9 @@ export const SiltUploadForm = () => {
           type="button"
           disabled={!file || submitting}
           onClick={handleSubmit}
-          className="w-full bg-[#5e4cff] hover:bg-[#4d3ce6] disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2.5 rounded-[8px] transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
+          className="w-full bg-[#0F172A] hover:bg-slate-800 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-3 rounded-xl shadow-xs transition-colors flex items-center justify-center space-x-2 focus:outline-none focus:ring-2 focus:ring-slate-400"
         >
-          {submitting ? 'Uploading…' : 'Estimate Silt Level'}
+          <span>{submitting ? 'Estimating Sediment Concentration…' : 'Estimate Silt Level'}</span>
         </button>
       </div>
     </div>

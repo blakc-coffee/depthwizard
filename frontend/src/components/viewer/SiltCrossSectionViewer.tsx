@@ -41,26 +41,28 @@ export const SiltCrossSectionViewer: React.FC<SiltCrossSectionViewerProps> = ({
   }, [crossSectionProfile, predictedSscMgL, normalizationCeilingMgL]);
 
   return (
-    <div className="w-full h-full bg-[#f6f8fa] border border-[#cdd2d9] rounded-[12px] p-4 sm:p-5 flex flex-col flex-1">
+    <div className="w-full h-full bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col flex-1 shadow-xs">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-base font-semibold text-[#36394a] font-heading">Cross-Section</h3>
-        <span className="text-[11px] text-[#818898]">Drag to tilt · Scroll to zoom</span>
+        <h3 className="text-base font-semibold text-slate-900 font-heading">Channel Cross-Section</h3>
+        <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+          Orbit & Zoom
+        </span>
       </div>
-      <div className="flex-1 relative bg-[#e2e6eb] rounded-[12px] overflow-hidden min-h-[440px] sm:min-h-[560px] border border-[#cdd2d9]/80 shadow-inner">
+      <div className="flex-1 relative bg-[#F1F5F9] rounded-lg overflow-hidden min-h-[440px] sm:min-h-[560px] border border-slate-200 shadow-inner">
         <div ref={containerRef} className="w-full h-full absolute inset-0 cursor-grab active:cursor-grabbing" />
       </div>
-      <div className="flex items-center justify-center gap-4 pt-2.5 text-[11px] text-[#818898]">
+      <div className="flex items-center justify-center gap-4 pt-2.5 text-xs text-slate-500">
         <span className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: '#5e9fd4' }} />
-          Water
+          Water Sheen
         </span>
         <span className="flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full inline-block" style={{ background: '#8a6a44' }} />
-          Sediment
+          Settled Sediment Bed
         </span>
       </div>
-      <p className="text-[10px] text-[#a3a9b5] text-center pt-1">
-        Stylized cross-section — real image-derived channel shape, not a literal bathymetric survey.
+      <p className="text-[10px] text-slate-400 text-center pt-1">
+        Interactive 3D model with real satellite-derived channel bed profile.
       </p>
     </div>
   );

@@ -21,7 +21,7 @@ const COLOR_SEDIMENT = new THREE.Color(0x8a6a44);
 // and clear water begins.
 const COLOR_BOUNDARY = COLOR_SEDIMENT.clone().lerp(COLOR_WATER, 0.4);
 const COLOR_BED_LINE = 0x3a362c;
-const COLOR_BACKGROUND = '#dfe4ea';
+const COLOR_BACKGROUND = '#F1F5F9';
 
 // Real per-pixel image variation is jagged at 48 samples — a real riverbed
 // (and especially a settled sediment layer) is smoother than that. A small

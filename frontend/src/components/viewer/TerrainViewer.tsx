@@ -110,17 +110,17 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
   };
 
   return (
-    <div className="w-full h-full bg-[#f6f8fa] border border-[#cdd2d9] rounded-[12px] p-4 sm:p-5 flex flex-col flex-1 max-w-full overflow-hidden">
+    <div className="w-full h-full bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col flex-1 max-w-full overflow-hidden shadow-xs">
       {/* Viewer Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div className="flex flex-wrap items-center gap-3">
-          <h3 className="text-base font-semibold text-[#36394a] font-heading">
+          <h3 className="text-base font-semibold text-slate-900 font-heading">
             3D Viewer
           </h3>
 
           {/* Vertical Relief Exaggeration Slider */}
-          <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] shadow-2xs">
-            <span className="text-xs text-[#666d80] font-medium select-none">Relief:</span>
+          <div className="flex items-center space-x-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+            <span className="text-xs text-slate-500 font-medium select-none">Relief:</span>
             <input
               type="range"
               min="0.8"
@@ -128,10 +128,10 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
               step="0.1"
               value={exaggeration}
               onChange={handleExaggerationChange}
-              className="w-20 sm:w-28 h-1.5 bg-[#e2e4e9] rounded-lg appearance-none cursor-pointer accent-[#5e4cff]"
+              className="w-20 sm:w-28 h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-slate-900"
               title={`Vertical Exaggeration: ${exaggeration.toFixed(1)}x`}
             />
-            <span className="text-xs font-mono font-semibold text-[#5e4cff] min-w-[32px] text-right">
+            <span className="text-xs font-mono font-semibold text-slate-900 min-w-[32px] text-right">
               {exaggeration.toFixed(1)}x
             </span>
           </div>
@@ -142,7 +142,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
             type="button"
             onClick={handleResetView}
             aria-label="Reset View"
-            className="text-xs text-[#36394a] hover:bg-[#f6f8fa] font-medium px-3.5 py-1.5 rounded-[8px] border border-[#cdd2d9] bg-white transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] shadow-2xs"
+            className="text-xs text-slate-700 hover:bg-slate-50 font-medium px-3.5 py-1.5 rounded-lg border border-slate-200 bg-white transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400 shadow-2xs"
           >
             Reset View
           </button>
@@ -150,16 +150,16 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
       </div>
 
       {/* 3D WebGL Canvas Container: Clean soft gray exhibition studio */}
-      <div className="flex-1 w-full relative bg-[#e2e6eb] rounded-[12px] overflow-hidden min-h-[360px] sm:min-h-[440px] border border-[#cdd2d9]/80 shadow-inner">
+      <div className="flex-1 w-full relative bg-[#F1F5F9] rounded-xl overflow-hidden min-h-[360px] sm:min-h-[440px] border border-slate-200 shadow-inner">
         {/* Tactical Flight Telemetry HUD */}
         <FlightHUD telemetry={telemetry} />
 
         {/* Difference Map Legend Overlay */}
         {disasterMode === 'difference' && (
-          <div className="absolute top-3 right-3 z-10 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] shadow-2xs text-[11px] text-[#36394a] flex items-center space-x-3 pointer-events-none select-none animate-in fade-in duration-150">
+          <div className="absolute top-3 right-3 z-10 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-slate-200 shadow-2xs text-[11px] text-slate-800 flex items-center space-x-3 pointer-events-none select-none animate-in fade-in duration-150">
             <div className="flex items-center space-x-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-600 shadow-2xs" />
-              <span className="font-semibold text-red-900">Collapse</span>
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-600 shadow-2xs" />
+              <span className="font-semibold text-rose-900">Collapse</span>
             </div>
             <div className="flex items-center space-x-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-cyan-500 shadow-2xs" />
@@ -167,23 +167,23 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
             </div>
             <div className="flex items-center space-x-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-slate-400 shadow-2xs" />
-              <span className="font-medium text-[#666d80]">Stable</span>
+              <span className="font-medium text-slate-500">Stable</span>
             </div>
           </div>
         )}
 
         {/* After Disaster Event Overlay Badge */}
         {disasterMode === 'after' && (
-          <div className="absolute top-3 right-3 z-10 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] shadow-2xs text-[11px] text-[#36394a] flex items-center space-x-2 pointer-events-none select-none animate-in fade-in duration-150">
+          <div className="absolute top-3 right-3 z-10 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-lg border border-slate-200 shadow-2xs text-[11px] text-slate-800 flex items-center space-x-2 pointer-events-none select-none animate-in fade-in duration-150">
             <span className="w-2 h-2 rounded-full bg-amber-500" />
             <span className="font-semibold text-amber-900">Post-Disaster State</span>
           </div>
         )}
 
         {loading && (
-          <div className="absolute inset-0 z-20 bg-[#e2e6eb]/90 flex items-center justify-center space-x-3 text-sm text-[#36394a] font-medium">
+          <div className="absolute inset-0 z-20 bg-[#F1F5F9]/90 flex items-center justify-center space-x-3 text-sm text-slate-700 font-medium">
             <svg
-              className="animate-spin h-5 w-5 text-[#5e4cff]"
+              className="animate-spin h-5 w-5 text-slate-900"
               xmlns="http://www.w3.org/2000/svg"
               fill="none"
               viewBox="0 0 24 24"
@@ -208,7 +208,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
         )}
 
         {viewerError && (
-          <div className="absolute inset-0 z-20 bg-white/95 p-6 flex flex-col items-center justify-center text-center space-y-3 text-[#36394a]">
+          <div className="absolute inset-0 z-20 bg-white/95 p-6 flex flex-col items-center justify-center text-center space-y-3 text-slate-800">
             <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path
@@ -220,7 +220,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
               </svg>
             </div>
             <h4 className="text-sm font-semibold font-heading">3D Terrain Rendering Unavailable</h4>
-            <p className="text-xs text-[#818898] max-w-md">{viewerError}</p>
+            <p className="text-xs text-slate-400 max-w-md">{viewerError}</p>
           </div>
         )}
 
@@ -228,21 +228,21 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
       </div>
 
       {/* Caption under canvas */}
-      <p className="text-[11px] text-[#818898] text-center my-2.5">
+      <p className="text-[11px] text-slate-400 text-center my-2.5">
         WASD or Arrows to fly · Q/E for altitude · Drag to orbit · Scroll to zoom · Relief adjusts heights
       </p>
 
-      {/* Bottom Segmented Overlay Pills matching image_3.png */}
-      <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1 border-t border-[#cdd2d9]/60 max-w-full overflow-hidden">
-        <span className="text-xs text-[#818898] font-medium mr-1.5">Overlay</span>
+      {/* Bottom Segmented Overlay Pills */}
+      <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1 border-t border-slate-100 max-w-full overflow-hidden">
+        <span className="text-xs text-slate-400 font-medium mr-1.5">Overlay</span>
 
         <button
           type="button"
           onClick={() => handleModeChange('3d')}
-          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
+          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400 ${
             activeMode === '3d'
-              ? 'bg-[#5e4cff] text-white shadow-xs'
-              : 'bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa]'
+              ? 'bg-[#0F172A] text-white shadow-xs'
+              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
           }`}
         >
           Normal
@@ -251,10 +251,10 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
         <button
           type="button"
           onClick={() => handleModeChange('2d_heightmap')}
-          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
+          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400 ${
             activeMode === '2d_heightmap'
-              ? 'bg-[#5e4cff] text-white shadow-xs'
-              : 'bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa]'
+              ? 'bg-[#0F172A] text-white shadow-xs'
+              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
           }`}
         >
           Slope
@@ -265,12 +265,12 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
           disabled={!confidenceMapUrl}
           onClick={() => confidenceMapUrl && handleModeChange('confidence')}
           title={!confidenceMapUrl ? 'Confidence Map unavailable for this job' : 'View Confidence Map'}
-          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
+          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400 ${
             !confidenceMapUrl
-              ? 'opacity-40 cursor-not-allowed bg-white border border-[#cdd2d9] text-[#818898]'
+              ? 'opacity-40 cursor-not-allowed bg-white border border-slate-200 text-slate-400'
               : activeMode === 'confidence'
-              ? 'bg-[#5e4cff] text-white shadow-xs'
-              : 'bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa]'
+              ? 'bg-[#0F172A] text-white shadow-xs'
+              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
           }`}
         >
           Confidence
@@ -279,10 +279,10 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
         <button
           type="button"
           onClick={() => handleModeChange('contour')}
-          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
+          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400 ${
             activeMode === 'contour'
-              ? 'bg-[#5e4cff] text-white shadow-xs'
-              : 'bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa]'
+              ? 'bg-[#0F172A] text-white shadow-xs'
+              : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
           }`}
         >
           Contour
@@ -290,7 +290,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
 
         <button
           type="button"
-          className="px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa] transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
+          className="px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 transition-colors focus:outline-none focus:ring-2 focus:ring-slate-400"
         >
           Validation
         </button>
