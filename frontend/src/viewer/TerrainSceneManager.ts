@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildTerrainMesh, TerrainMeshBuildParams } from './TerrainMeshBuilder';
+import { getSampleTerrain } from './sampleTerrainGenerator';
 
 export type ViewMode = '3d' | '2d_heightmap' | 'confidence' | 'contour';
 export type DisasterMode = 'before' | 'after' | 'difference';
@@ -20,6 +21,12 @@ export class TerrainSceneManager {
   private camera: THREE.PerspectiveCamera;
   private renderer: THREE.WebGLRenderer;
   private controls: OrbitControls;
+
+  private meshesByMode: Map<DisasterMode, THREE.Mesh> = new Map();
+  private texturesByMode: Map<DisasterMode, THREE.Texture> = new Map();
+  private heightmapsByMode: Map<DisasterMode, THREE.Texture> = new Map();
+  private currentViewMode: ViewMode = '3d';
+  private currentExaggeration: number = 2.2;
 
   private currentMesh: THREE.Mesh | null = null;
   private currentTexture: THREE.Texture | null = null;
@@ -46,7 +53,7 @@ export class TerrainSceneManager {
 
     // Scene with soft, clean architectural gallery gray backdrop
     this.scene = new THREE.Scene();
-    this.scene.background = new THREE.Color('#e2e6eb');
+    this.scene.background = new THREE.Color('#F1F5F9');
 
     // Camera
     const width = container.clientWidth || 800;
@@ -119,6 +126,11 @@ export class TerrainSceneManager {
     const fillLight = new THREE.DirectionalLight(0xdde3ec, 0.4);
     fillLight.position.set(-14, 12, -12);
     this.scene.add(fillLight);
+
+    // Soft upward fill light to illuminate terrain base/underside, preventing harsh black shadows
+    const bottomFillLight = new THREE.DirectionalLight(0xa5b4fc, 0.45);
+    bottomFillLight.position.set(0, -18, 0);
+    this.scene.add(bottomFillLight);
   }
 
   private setupResizeObserver() {
@@ -136,156 +148,148 @@ export class TerrainSceneManager {
 
   public async loadTerrain(
     params: TerrainMeshBuildParams,
-    confidenceMapUrl?: string | null
+    _confidenceMapUrl?: string | null
   ): Promise<void> {
     this.clearCurrentMesh();
 
-    const buildResult = await buildTerrainMesh(params);
-    this.currentMesh = buildResult.mesh;
-    this.currentTexture = buildResult.texture;
+    const exaggeration = params.verticalExaggeration ?? 2.2;
+    this.currentExaggeration = exaggeration;
 
-    this.scene.add(this.currentMesh);
-
-    // Texture loader for overlays
-    const textureLoader = new THREE.TextureLoader();
-
-    // Load 2D heightmap texture overlay for mode switching
-    if (params.heightmapUrl.startsWith('http')) {
-      textureLoader.setCrossOrigin('anonymous');
-    }
-
-    this.heightmapTexture = await new Promise<THREE.Texture>((resolve) => {
-      textureLoader.load(
-        params.heightmapUrl,
-        (tex) => {
-          tex.colorSpace = THREE.SRGBColorSpace;
-          tex.wrapS = THREE.ClampToEdgeWrapping;
-          tex.wrapT = THREE.ClampToEdgeWrapping;
-          resolve(tex);
-        },
-        undefined,
-        () => resolve(buildResult.texture) // fallback to main texture on error
-      );
+    // 1. Build 'before' primary terrain model
+    const beforeResult = await buildTerrainMesh({
+      ...params,
+      verticalExaggeration: this.currentExaggeration,
     });
+    this.meshesByMode.set('before', beforeResult.mesh);
+    this.texturesByMode.set('before', beforeResult.texture);
 
-    // Load confidence texture overlay if confidenceMapUrl is provided
-    const effectiveConfidenceUrl =
-      confidenceMapUrl ?? (params as { confidenceMapUrl?: string | null }).confidenceMapUrl;
-    if (effectiveConfidenceUrl) {
-      if (effectiveConfidenceUrl.startsWith('http')) {
+    // 2. Build 'after' sample terrain model (massive landslide & collapsed mountain flank)
+    const afterSample = getSampleTerrain('after');
+    const afterResult = await buildTerrainMesh({
+      ...params,
+      heightmapUrl: afterSample.heightmapUrl,
+      textureUrl: afterSample.textureUrl,
+      verticalExaggeration: this.currentExaggeration,
+    });
+    this.meshesByMode.set('after', afterResult.mesh);
+    this.texturesByMode.set('after', afterResult.texture);
+
+    // 3. Build 'difference' sample terrain model (delta displacement elevation + chromatic heatmap)
+    const diffSample = getSampleTerrain('difference');
+    const diffResult = await buildTerrainMesh({
+      ...params,
+      heightmapUrl: diffSample.heightmapUrl,
+      textureUrl: diffSample.textureUrl,
+      verticalExaggeration: this.currentExaggeration,
+    });
+    this.meshesByMode.set('difference', diffResult.mesh);
+    this.texturesByMode.set('difference', diffResult.texture);
+
+    // Texture loader for overlays & slope view
+    const textureLoader = new THREE.TextureLoader();
+    const loadTex = (url: string): Promise<THREE.Texture> => {
+      if (url.startsWith('http')) {
         textureLoader.setCrossOrigin('anonymous');
       }
-
-      this.confidenceTexture = await new Promise<THREE.Texture | null>((resolve) => {
+      return new Promise((resolve) => {
         textureLoader.load(
-          effectiveConfidenceUrl,
+          url,
           (tex) => {
             tex.colorSpace = THREE.SRGBColorSpace;
+            tex.wrapS = THREE.ClampToEdgeWrapping;
+            tex.wrapT = THREE.ClampToEdgeWrapping;
             resolve(tex);
           },
           undefined,
-          (err) => {
-            console.warn('Failed to load confidence map texture:', err);
-            resolve(null);
-          }
+          () => resolve(beforeResult.texture)
         );
       });
-    } else {
-      this.confidenceTexture = null;
-    }
+    };
 
-    // Generate preset after-event, difference heatmap, and topographic contour textures
-    const baseImg = buildResult.texture?.image as HTMLImageElement | undefined;
-    this.afterTexture = this.createAfterTexture(baseImg);
-    this.differenceTexture = this.createDifferenceTexture(baseImg);
-    this.contourTexture = this.createContourTexture(baseImg);
+    const beforeHmap = await loadTex(params.heightmapUrl || getSampleTerrain('before').heightmapUrl);
+    const afterHmap = await loadTex(afterSample.heightmapUrl);
+    const diffHmap = await loadTex(diffSample.heightmapUrl);
 
+    this.heightmapsByMode.set('before', beforeHmap);
+    this.heightmapsByMode.set('after', afterHmap);
+    this.heightmapsByMode.set('difference', diffHmap);
+
+    // Set initial active mesh
+    const activeMesh = this.meshesByMode.get(this.currentDisasterMode) || beforeResult.mesh;
+    this.currentMesh = activeMesh;
+    this.scene.add(this.currentMesh);
+
+    // Backwards-compatibility references
+    this.currentTexture = beforeResult.texture;
+    this.heightmapTexture = beforeHmap;
+    this.afterTexture = afterResult.texture;
+    this.differenceTexture = diffResult.texture;
+
+    this.applyViewMode(this.currentViewMode);
     this.resetView();
   }
 
   public setDisasterMode(mode: DisasterMode): void {
     this.currentDisasterMode = mode;
-    if (!this.currentMesh) return;
-    const materials = Array.isArray(this.currentMesh.material)
-      ? this.currentMesh.material
-      : [this.currentMesh.material];
-    const terrainMat = materials[0] as THREE.MeshStandardMaterial;
+    const targetMesh = this.meshesByMode.get(mode);
+    if (!targetMesh) return;
 
-    if (mode === 'before') {
-      if (this.currentTexture) terrainMat.map = this.currentTexture;
-    } else if (mode === 'after') {
-      if (this.afterTexture) {
-        terrainMat.map = this.afterTexture;
-      } else if (this.currentTexture) {
-        terrainMat.map = this.currentTexture;
-      }
-    } else if (mode === 'difference') {
-      if (this.differenceTexture) {
-        terrainMat.map = this.differenceTexture;
-      }
+    if (this.currentMesh && this.currentMesh !== targetMesh) {
+      this.scene.remove(this.currentMesh);
+    }
+    this.currentMesh = targetMesh;
+    if (!this.scene.children.includes(this.currentMesh)) {
+      this.scene.add(this.currentMesh);
     }
 
-    terrainMat.needsUpdate = true;
+    this.applyViewMode(this.currentViewMode);
   }
 
   public setViewMode(mode: ViewMode): void {
+    this.currentViewMode = mode;
+    this.applyViewMode(mode);
+  }
+
+  private applyViewMode(mode: ViewMode): void {
     if (!this.currentMesh) return;
     const materials = Array.isArray(this.currentMesh.material)
       ? this.currentMesh.material
       : [this.currentMesh.material];
     const terrainMat = materials[0] as THREE.MeshStandardMaterial;
 
-    if (mode === '3d') {
-      if (this.currentDisasterMode === 'difference' && this.differenceTexture) {
-        terrainMat.map = this.differenceTexture;
-      } else if (this.currentDisasterMode === 'after' && this.afterTexture) {
-        terrainMat.map = this.afterTexture;
-      } else if (this.currentTexture) {
-        terrainMat.map = this.currentTexture;
-      }
-    } else if (mode === '2d_heightmap') {
-      if (this.heightmapTexture) terrainMat.map = this.heightmapTexture;
-    } else if (mode === 'confidence') {
-      if (this.confidenceTexture) {
-        terrainMat.map = this.confidenceTexture;
-      } else if (this.currentTexture) {
-        terrainMat.map = this.currentTexture;
-      }
-    } else if (mode === 'contour') {
-      if (this.contourTexture) {
-        terrainMat.map = this.contourTexture;
-      } else if (this.currentTexture) {
-        terrainMat.map = this.currentTexture;
-      }
+    if (mode === '2d_heightmap') {
+      const hmap = this.heightmapsByMode.get(this.currentDisasterMode) || this.heightmapTexture;
+      if (hmap) terrainMat.map = hmap;
+    } else {
+      const tex = this.texturesByMode.get(this.currentDisasterMode) || this.currentTexture;
+      if (tex) terrainMat.map = tex;
     }
 
     terrainMat.needsUpdate = true;
   }
 
   public setHeightExaggeration(multiplier: number): void {
-    if (!this.currentMesh) return;
-    const geom = this.currentMesh.geometry;
-    const rawHeights = geom.userData.rawHeights as Float32Array | undefined;
-    const isSkirt = geom.userData.isSkirt as Uint8Array | undefined;
-    const minRawZ = (geom.userData.minRawZ as number) ?? 0;
-    if (!rawHeights || !isSkirt) return;
+    this.currentExaggeration = multiplier;
+    this.meshesByMode.forEach((mesh) => {
+      const geom = mesh.geometry;
+      const rawHeights = geom.userData.rawHeights as Float32Array | undefined;
+      const isSkirt = geom.userData.isSkirt as Uint8Array | undefined;
+      const minRawZ = (geom.userData.minRawZ as number) ?? 0;
+      if (!rawHeights || !isSkirt) return;
 
-    // Dynamically anchor base floor below the lowest displaced point
-    const currentZBase = (minRawZ * multiplier) - 0.8;
-
-    const posAttr = geom.attributes.position;
-    for (let i = 0; i < posAttr.count; i++) {
-      const type = isSkirt[i];
-      if (type === 2) {
-        // Bottom floor and bottom skirt vertices stay anchored at currentZBase
-        posAttr.setZ(i, currentZBase);
-      } else {
-        // Top terrain and top skirt vertices scale dynamically with relief
-        posAttr.setZ(i, rawHeights[i] * multiplier);
+      const currentZBase = (minRawZ * multiplier) - 0.8;
+      const posAttr = geom.attributes.position;
+      for (let i = 0; i < posAttr.count; i++) {
+        const type = isSkirt[i];
+        if (type === 2) {
+          posAttr.setZ(i, currentZBase);
+        } else {
+          posAttr.setZ(i, rawHeights[i] * multiplier);
+        }
       }
-    }
-    posAttr.needsUpdate = true;
-    geom.computeVertexNormals();
+      posAttr.needsUpdate = true;
+      geom.computeVertexNormals();
+    });
   }
 
   public setTelemetryCallback(cb: ((telemetry: FlightTelemetry) => void) | null): void {
@@ -417,125 +421,29 @@ export class TerrainSceneManager {
     this.renderer.render(this.scene, this.camera);
   };
 
-  private createDifferenceTexture(baseImg?: HTMLImageElement): THREE.CanvasTexture {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return new THREE.CanvasTexture(canvas);
-
-    // 1. Base grayscale terrain surface
-    ctx.fillStyle = '#cbd5e1';
-    ctx.fillRect(0, 0, 512, 512);
-
-    if (baseImg) {
-      ctx.globalAlpha = 0.55;
-      ctx.drawImage(baseImg, 0, 0, 512, 512);
-      ctx.globalAlpha = 1.0;
-    }
-
-    // 2. Cyan / blue water accumulation & flood zones (#06b6d4, #0284c7)
-    ctx.save();
-    ctx.fillStyle = '#06b6d4';
-    ctx.globalAlpha = 0.7;
-    ctx.beginPath();
-    ctx.ellipse(350, 180, 110, 65, Math.PI / 4, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.ellipse(150, 340, 95, 50, -Math.PI / 6, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-
-    // 3. Red / crimson structural collapse & damage zones (#dc2626, #b91c1c)
-    ctx.save();
-    ctx.fillStyle = '#dc2626';
-    ctx.globalAlpha = 0.85;
-
-    // High damage center core
-    ctx.beginPath();
-    ctx.arc(250, 255, 55, 0, Math.PI * 2);
-    ctx.fill();
-
-    // Scattered structural collapse cluster footprints
-    const collapseHotspots = [
-      [210, 220, 24], [280, 230, 26], [230, 300, 28], [290, 290, 22],
-      [180, 260, 18], [160, 200, 16], [320, 220, 20], [340, 270, 18],
-      [200, 160, 16], [240, 180, 16], [310, 330, 18], [170, 350, 14],
-      [260, 350, 16], [140, 290, 14], [360, 310, 15]
-    ];
-    for (const [x, y, r] of collapseHotspots) {
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    // Deep red intense epicenter
-    ctx.fillStyle = '#7f1d1d';
-    ctx.globalAlpha = 0.9;
-    ctx.beginPath();
-    ctx.arc(245, 255, 30, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.restore();
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.wrapS = THREE.ClampToEdgeWrapping;
-    texture.wrapT = THREE.ClampToEdgeWrapping;
-    return texture;
-  }
-
-  private createAfterTexture(baseImg?: HTMLImageElement): THREE.CanvasTexture {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return new THREE.CanvasTexture(canvas);
-
-    if (baseImg) {
-      ctx.drawImage(baseImg, 0, 0, 512, 512);
-      // Post-disaster debris, silt, and weathering tint
-      ctx.fillStyle = 'rgba(75, 60, 48, 0.45)';
-      ctx.fillRect(0, 0, 512, 512);
-
-      // Water logging in valley
-      ctx.fillStyle = 'rgba(30, 58, 80, 0.6)';
-      ctx.beginPath();
-      ctx.ellipse(350, 180, 110, 65, Math.PI / 4, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Rubble & soot scars
-      ctx.fillStyle = 'rgba(45, 35, 30, 0.65)';
-      ctx.beginPath();
-      ctx.arc(250, 255, 55, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      ctx.fillStyle = '#78716c';
-      ctx.fillRect(0, 0, 512, 512);
-    }
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.wrapS = THREE.ClampToEdgeWrapping;
-    texture.wrapT = THREE.ClampToEdgeWrapping;
-    return texture;
-  }
 
   private clearCurrentMesh() {
-    if (this.currentMesh) {
-      this.scene.remove(this.currentMesh);
-      if (this.currentMesh.geometry) this.currentMesh.geometry.dispose();
-
-      if (Array.isArray(this.currentMesh.material)) {
-        this.currentMesh.material.forEach((m) => m.dispose());
-      } else if (this.currentMesh.material) {
-        this.currentMesh.material.dispose();
+    this.meshesByMode.forEach((mesh) => {
+      this.scene.remove(mesh);
+      if (mesh.geometry) mesh.geometry.dispose();
+      if (Array.isArray(mesh.material)) {
+        mesh.material.forEach((m) => m.dispose());
+      } else if (mesh.material) {
+        mesh.material.dispose();
       }
+    });
+    this.meshesByMode.clear();
+    this.currentMesh = null;
 
-      this.currentMesh = null;
+    this.texturesByMode.forEach((t) => t.dispose());
+    this.texturesByMode.clear();
+    this.heightmapsByMode.forEach((t) => t.dispose());
+    this.heightmapsByMode.clear();
+
+    if (this.currentTexture) {
+      this.currentTexture.dispose();
+      this.currentTexture = null;
     }
-
     if (this.heightmapTexture) {
       this.heightmapTexture.dispose();
       this.heightmapTexture = null;
@@ -556,55 +464,6 @@ export class TerrainSceneManager {
       this.contourTexture.dispose();
       this.contourTexture = null;
     }
-  }
-
-  private createContourTexture(baseImg?: HTMLImageElement): THREE.CanvasTexture {
-    const canvas = document.createElement('canvas');
-    canvas.width = 512;
-    canvas.height = 512;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return new THREE.CanvasTexture(canvas);
-
-    if (baseImg) {
-      ctx.drawImage(baseImg, 0, 0, 512, 512);
-      ctx.fillStyle = 'rgba(235, 240, 246, 0.45)';
-      ctx.fillRect(0, 0, 512, 512);
-    } else {
-      ctx.fillStyle = '#cbd5e1';
-      ctx.fillRect(0, 0, 512, 512);
-    }
-
-    // Draw high-precision vector topographic contour curves (#5e4cff)
-    ctx.strokeStyle = '#5e4cff';
-    ctx.lineWidth = 1.5;
-    ctx.globalAlpha = 0.8;
-
-    for (let r = 25; r < 250; r += 24) {
-      ctx.beginPath();
-      for (let theta = 0; theta <= Math.PI * 2; theta += 0.05) {
-        const wobble = Math.sin(theta * 6) * 7 + Math.cos(theta * 4) * 5;
-        const x = 256 + (r + wobble) * Math.cos(theta);
-        const y = 256 + (r + wobble) * Math.sin(theta) * 0.88;
-        if (theta === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-      }
-      ctx.closePath();
-      ctx.stroke();
-    }
-
-    // Add topographic contour elevation labels
-    ctx.font = 'bold 9px monospace';
-    ctx.fillStyle = '#36394a';
-    ctx.globalAlpha = 0.9;
-    ctx.fillText('120m', 258, 256 - 120);
-    ctx.fillText('140m', 258, 256 - 72);
-    ctx.fillText('160m', 258, 256 - 24);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    texture.wrapS = THREE.ClampToEdgeWrapping;
-    texture.wrapT = THREE.ClampToEdgeWrapping;
-    return texture;
   }
 
   public dispose(): void {

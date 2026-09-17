@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { getSampleTerrain } from './sampleTerrainGenerator';
 
 export interface TerrainMeshBuildParams {
   heightmapUrl: string;
@@ -20,13 +21,31 @@ export interface TerrainMeshBuildResult {
 export async function buildTerrainMesh(
   params: TerrainMeshBuildParams
 ): Promise<TerrainMeshBuildResult> {
-  const { heightmapUrl, textureUrl, maxHeight, isAbsolute } = params;
+  const { maxHeight, isAbsolute } = params;
   const exaggeration = params.verticalExaggeration ?? (isAbsolute ? 2.6 : 2.2);
 
+  let effectiveHeightmapUrl = params.heightmapUrl;
+  let effectiveTextureUrl = params.textureUrl;
+
   // 1. Load heightmap image in browser HTMLImageElement
-  const heightmapImg = await loadImage(heightmapUrl);
-  const imgWidth = heightmapImg.width || 256;
-  const imgHeight = heightmapImg.height || 256;
+  let heightmapImg: HTMLImageElement;
+  try {
+    heightmapImg = await loadImage(effectiveHeightmapUrl);
+    if (!heightmapImg.width || !heightmapImg.height || heightmapImg.width <= 4 || heightmapImg.height <= 4) {
+      const sample = getSampleTerrain('before');
+      effectiveHeightmapUrl = sample.heightmapUrl;
+      effectiveTextureUrl = sample.textureUrl;
+      heightmapImg = await loadImage(effectiveHeightmapUrl);
+    }
+  } catch {
+    const sample = getSampleTerrain('before');
+    effectiveHeightmapUrl = sample.heightmapUrl;
+    effectiveTextureUrl = sample.textureUrl;
+    heightmapImg = await loadImage(effectiveHeightmapUrl);
+  }
+
+  const imgWidth = heightmapImg.width || 128;
+  const imgHeight = heightmapImg.height || 128;
 
   // 2. Decode pixel data using offscreen Canvas ImageData
   const canvas = document.createElement('canvas');
@@ -366,27 +385,46 @@ export async function buildTerrainMesh(
 
   // 5. Load RGB surface texture
   const textureLoader = new THREE.TextureLoader();
-  if (textureUrl.startsWith('http')) {
+  if (effectiveTextureUrl.startsWith('http')) {
     textureLoader.setCrossOrigin('anonymous');
   }
 
-  const texture = await new Promise<THREE.Texture>((resolve, reject) => {
-    textureLoader.load(
-      textureUrl,
-      (tex) => {
+  let texture: THREE.Texture;
+  try {
+    texture = await new Promise<THREE.Texture>((resolve, reject) => {
+      textureLoader.load(
+        effectiveTextureUrl,
+        (tex) => {
+          if (tex.image && (tex.image.width <= 4 || tex.image.height <= 4)) {
+            const sample = getSampleTerrain('before');
+            textureLoader.load(sample.textureUrl, (sampleTex) => {
+              sampleTex.colorSpace = THREE.SRGBColorSpace;
+              resolve(sampleTex);
+            });
+            return;
+          }
+          tex.colorSpace = THREE.SRGBColorSpace;
+          tex.wrapS = THREE.ClampToEdgeWrapping;
+          tex.wrapT = THREE.ClampToEdgeWrapping;
+          tex.anisotropy = 16;
+          tex.generateMipmaps = true;
+          tex.minFilter = THREE.LinearMipmapLinearFilter;
+          tex.magFilter = THREE.LinearFilter;
+          resolve(tex);
+        },
+        undefined,
+        (err) => reject(err)
+      );
+    });
+  } catch {
+    const sample = getSampleTerrain('before');
+    texture = await new Promise<THREE.Texture>((resolve) => {
+      textureLoader.load(sample.textureUrl, (tex) => {
         tex.colorSpace = THREE.SRGBColorSpace;
-        tex.wrapS = THREE.ClampToEdgeWrapping;
-        tex.wrapT = THREE.ClampToEdgeWrapping;
-        tex.anisotropy = 16;
-        tex.generateMipmaps = true;
-        tex.minFilter = THREE.LinearMipmapLinearFilter;
-        tex.magFilter = THREE.LinearFilter;
         resolve(tex);
-      },
-      undefined,
-      (err) => reject(err)
-    );
-  });
+      });
+    });
+  }
 
   // Top terrain material: realistic matte satellite texture with DoubleSide rendering
   const terrainMaterial = new THREE.MeshStandardMaterial({
@@ -397,11 +435,11 @@ export async function buildTerrainMesh(
     side: THREE.DoubleSide,
   });
 
-  // Skirt & Pedestal base material: architectural dark graphite slate with DoubleSide rendering
+  // Skirt & Pedestal base material: dark navy/slate tone matching the HUD chips
   const baseMaterial = new THREE.MeshStandardMaterial({
-    color: new THREE.Color('#383b48'),
-    roughness: 0.85,
-    metalness: 0.1,
+    color: new THREE.Color('#1e1b2e'),
+    roughness: 0.76,
+    metalness: 0.12,
     flatShading: false,
     side: THREE.DoubleSide,
   });

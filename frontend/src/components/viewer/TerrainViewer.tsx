@@ -110,190 +110,121 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
   };
 
   return (
-    <div className="w-full h-full bg-[#f6f8fa] border border-[#cdd2d9] rounded-[12px] p-4 sm:p-5 flex flex-col flex-1 max-w-full overflow-hidden">
-      {/* Viewer Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-        <div className="flex flex-wrap items-center gap-3">
-          <h3 className="text-base font-semibold text-[#36394a] font-heading">
-            3D Viewer
-          </h3>
+    <div className="relative w-full h-full min-h-[550px] sm:min-h-[640px] rounded-xl overflow-hidden bg-[#F1F5F9] border border-slate-200/80 shadow-xs flex flex-col">
+      {/* Tactical Flight Telemetry HUD (top-left) */}
+      <FlightHUD telemetry={telemetry} />
 
-          {/* Vertical Relief Exaggeration Slider */}
-          <div className="flex items-center space-x-2 bg-white px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] shadow-2xs">
-            <span className="text-xs text-[#666d80] font-medium select-none">Relief:</span>
-            <input
-              type="range"
-              min="0.8"
-              max="4.5"
-              step="0.1"
-              value={exaggeration}
-              onChange={handleExaggerationChange}
-              className="w-20 sm:w-28 h-1.5 bg-[#e2e4e9] rounded-lg appearance-none cursor-pointer accent-[#5e4cff]"
-              title={`Vertical Exaggeration: ${exaggeration.toFixed(1)}x`}
-            />
-            <span className="text-xs font-mono font-semibold text-[#5e4cff] min-w-[32px] text-right">
-              {exaggeration.toFixed(1)}x
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-2">
-          <button
-            type="button"
-            onClick={handleResetView}
-            aria-label="Reset View"
-            className="text-xs text-[#36394a] hover:bg-[#f6f8fa] font-medium px-3.5 py-1.5 rounded-[8px] border border-[#cdd2d9] bg-white transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] shadow-2xs"
-          >
-            Reset View
-          </button>
-        </div>
-      </div>
-
-      {/* 3D WebGL Canvas Container: Clean soft gray exhibition studio */}
-      <div className="flex-1 w-full relative bg-[#e2e6eb] rounded-[12px] overflow-hidden min-h-[360px] sm:min-h-[440px] border border-[#cdd2d9]/80 shadow-inner">
-        {/* Tactical Flight Telemetry HUD */}
-        <FlightHUD telemetry={telemetry} />
-
-        {/* Difference Map Legend Overlay */}
-        {disasterMode === 'difference' && (
-          <div className="absolute top-3 right-3 z-10 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] shadow-2xs text-[11px] text-[#36394a] flex items-center space-x-3 pointer-events-none select-none animate-in fade-in duration-150">
-            <div className="flex items-center space-x-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-red-600 shadow-2xs" />
-              <span className="font-semibold text-red-900">Collapse</span>
-            </div>
-            <div className="flex items-center space-x-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-cyan-500 shadow-2xs" />
-              <span className="font-semibold text-cyan-900">Flooded</span>
-            </div>
-            <div className="flex items-center space-x-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-slate-400 shadow-2xs" />
-              <span className="font-medium text-[#666d80]">Stable</span>
-            </div>
-          </div>
-        )}
-
-        {/* After Disaster Event Overlay Badge */}
-        {disasterMode === 'after' && (
-          <div className="absolute top-3 right-3 z-10 bg-white/95 backdrop-blur-xs px-3 py-1.5 rounded-[8px] border border-[#cdd2d9] shadow-2xs text-[11px] text-[#36394a] flex items-center space-x-2 pointer-events-none select-none animate-in fade-in duration-150">
-            <span className="w-2 h-2 rounded-full bg-amber-500" />
-            <span className="font-semibold text-amber-900">Post-Disaster State</span>
-          </div>
-        )}
-
-        {loading && (
-          <div className="absolute inset-0 z-20 bg-[#e2e6eb]/90 flex items-center justify-center space-x-3 text-sm text-[#36394a] font-medium">
-            <svg
-              className="animate-spin h-5 w-5 text-[#5e4cff]"
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              aria-hidden="true"
-            >
-              <circle
-                className="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                strokeWidth="4"
-              />
-              <path
-                className="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              />
-            </svg>
-            <span>Building solid 3D terrain block…</span>
-          </div>
-        )}
-
-        {viewerError && (
-          <div className="absolute inset-0 z-20 bg-white/95 p-6 flex flex-col items-center justify-center text-center space-y-3 text-[#36394a]">
-            <div className="w-12 h-12 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center">
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                />
-              </svg>
-            </div>
-            <h4 className="text-sm font-semibold font-heading">3D Terrain Rendering Unavailable</h4>
-            <p className="text-xs text-[#818898] max-w-md">{viewerError}</p>
-          </div>
-        )}
-
-        <div ref={containerRef} className="w-full h-full absolute inset-0 cursor-grab active:cursor-grabbing" />
-      </div>
-
-      {/* Caption under canvas */}
-      <p className="text-[11px] text-[#818898] text-center my-2.5">
-        WASD or Arrows to fly · Q/E for altitude · Drag to orbit · Scroll to zoom · Relief adjusts heights
-      </p>
-
-      {/* Bottom Segmented Overlay Pills matching image_3.png */}
-      <div className="flex flex-wrap items-center justify-center gap-1.5 pt-1 border-t border-[#cdd2d9]/60 max-w-full overflow-hidden">
-        <span className="text-xs text-[#818898] font-medium mr-1.5">Overlay</span>
-
+      {/* Floating Center View Mode Pill Switcher (Normal / Slope) - Continuous Segmented Pill */}
+      <div className="absolute top-3.5 left-1/2 -translate-x-1/2 z-10 flex items-center bg-white/90 backdrop-blur-md border border-slate-200/80 rounded-full p-1 shadow-sm">
         <button
           type="button"
           onClick={() => handleModeChange('3d')}
-          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
+          className={`px-3.5 py-1 text-xs font-medium rounded-full transition-all focus:outline-none ${
             activeMode === '3d'
-              ? 'bg-[#5e4cff] text-white shadow-xs'
-              : 'bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa]'
+              ? 'bg-[#5e4cff] text-white shadow-xs font-semibold'
+              : 'text-slate-600 hover:text-slate-900 font-medium'
           }`}
         >
           Normal
         </button>
-
         <button
           type="button"
           onClick={() => handleModeChange('2d_heightmap')}
-          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
+          className={`px-3.5 py-1 text-xs font-medium rounded-full transition-all focus:outline-none ${
             activeMode === '2d_heightmap'
-              ? 'bg-[#5e4cff] text-white shadow-xs'
-              : 'bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa]'
+              ? 'bg-[#5e4cff] text-white shadow-xs font-semibold'
+              : 'text-slate-600 hover:text-slate-900 font-medium'
           }`}
         >
           Slope
         </button>
+      </div>
 
+      {/* Floating Top-Right Controls: Relief & Reset */}
+      <div className="absolute top-3.5 right-3.5 z-10 flex items-center space-x-2 bg-white/95 backdrop-blur-md border border-slate-200/80 text-slate-800 rounded-full px-3 py-1.5 shadow-xs text-xs">
+        <span className="text-slate-500 font-medium select-none text-[11px]">Relief:</span>
+        <input
+          type="range"
+          min="0.8"
+          max="4.5"
+          step="0.1"
+          value={exaggeration}
+          onChange={handleExaggerationChange}
+          className="w-16 sm:w-20 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#5e4cff]"
+          title={`Vertical Exaggeration: ${exaggeration.toFixed(1)}x`}
+        />
+        <span className="font-mono text-[11px] font-semibold text-slate-800 min-w-[28px] text-right">
+          {exaggeration.toFixed(1)}x
+        </span>
+        <div className="h-3.5 w-px bg-slate-200 mx-0.5" />
         <button
           type="button"
-          disabled={!confidenceMapUrl}
-          onClick={() => confidenceMapUrl && handleModeChange('confidence')}
-          title={!confidenceMapUrl ? 'Confidence Map unavailable for this job' : 'View Confidence Map'}
-          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
-            !confidenceMapUrl
-              ? 'opacity-40 cursor-not-allowed bg-white border border-[#cdd2d9] text-[#818898]'
-              : activeMode === 'confidence'
-              ? 'bg-[#5e4cff] text-white shadow-xs'
-              : 'bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa]'
-          }`}
+          onClick={handleResetView}
+          className="text-slate-500 hover:text-slate-900 font-medium text-[11px] transition-colors focus:outline-none"
         >
-          Confidence
+          Reset
         </button>
+      </div>
 
-        <button
-          type="button"
-          onClick={() => handleModeChange('contour')}
-          className={`px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff] ${
-            activeMode === 'contour'
-              ? 'bg-[#5e4cff] text-white shadow-xs'
-              : 'bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa]'
-          }`}
-        >
-          Contour
-        </button>
+      {/* After Disaster State Overlay Badge */}
+      {disasterMode === 'after' && (
+        <div className="absolute top-12 right-3.5 z-10 bg-white/95 backdrop-blur-md border border-slate-200/80 px-3 py-1 rounded-full shadow-xs text-[11px] text-slate-700 pointer-events-none select-none animate-in fade-in duration-150">
+          <span className="font-medium">Post-Disaster View</span>
+        </div>
+      )}
 
-        <button
-          type="button"
-          className="px-3.5 sm:px-5 py-1 text-xs font-medium rounded-full bg-white border border-[#cdd2d9] text-[#36394a] hover:bg-[#f6f8fa] transition-colors focus:outline-none focus:ring-2 focus:ring-[#5e4cff]"
-        >
-          Validation
-        </button>
+      {/* Loading State Overlay */}
+      {loading && (
+        <div className="absolute inset-0 z-20 bg-[#F1F5F9]/90 flex items-center justify-center space-x-3 text-sm text-slate-700 font-medium">
+          <svg
+            className="animate-spin h-5 w-5 text-slate-900"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <circle
+              className="opacity-25"
+              cx="12"
+              cy="12"
+              r="10"
+              stroke="currentColor"
+              strokeWidth="4"
+            />
+            <path
+              className="opacity-75"
+              fill="currentColor"
+              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+            />
+          </svg>
+          <span>Building solid 3D terrain block…</span>
+        </div>
+      )}
+
+      {/* Error State Overlay */}
+      {viewerError && (
+        <div className="absolute inset-0 z-20 bg-white/95 p-6 flex flex-col items-center justify-center text-center space-y-3 text-slate-800">
+          <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+              />
+            </svg>
+          </div>
+          <h4 className="text-sm font-semibold font-heading">3D Terrain Rendering Unavailable</h4>
+          <p className="text-xs text-slate-400 max-w-md">{viewerError}</p>
+        </div>
+      )}
+
+      {/* Full-bleed 3D WebGL Canvas */}
+      <div ref={containerRef} className="w-full h-full absolute inset-0 cursor-grab active:cursor-grabbing" />
+
+      {/* Floating Bottom Navigation Hint */}
+      <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 bg-white/90 backdrop-blur-md border border-slate-200/80 px-3.5 py-1 rounded-full text-[10px] text-slate-600 pointer-events-none select-none shadow-xs whitespace-nowrap">
+        WASD/Arrows to fly · Q/E altitude · Drag to orbit · Scroll to zoom
       </div>
     </div>
   );
