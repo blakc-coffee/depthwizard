@@ -22,8 +22,7 @@ celery_app.conf.update(
     task_routes={
         "app.tasks.process_image.process_image": {"queue": "image_processing"},
         "app.tasks.process_river_silt_image.process_river_silt_image": {"queue": "image_processing"},
-        # compare_images is wired in here when B7 starts (PRD §9.10 B7) —
-        # routes/compare.py and tasks/compare_images.py stay stubs until then.
+        "app.tasks.compare_images.compare_images": {"queue": "image_processing"},
     },
     task_time_limit=settings.celery_task_time_limit_seconds,
     task_soft_time_limit=max(settings.celery_task_time_limit_seconds - 30, 30),
@@ -31,5 +30,5 @@ celery_app.conf.update(
     # One ML worker per GPU (PRD §9.10 B6) — don't let a worker process
     # start a second task before the first finishes.
     worker_prefetch_multiplier=1,
-    imports=("app.tasks.process_image", "app.tasks.process_river_silt_image"),
+    imports=("app.tasks.process_image", "app.tasks.process_river_silt_image", "app.tasks.compare_images"),
 )

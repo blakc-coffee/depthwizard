@@ -73,6 +73,10 @@ NON_RETRYABLE_CODES = frozenset(
         ErrorCode.INVALID_GEOTIFF,
         ErrorCode.CALIBRATION_FAILED,
         ErrorCode.ML_INFERENCE_FAILED,
+        # Deterministic comparison rejections (PRD §9.9) — the source jobs and
+        # their extents don't change between attempts.
+        ErrorCode.COMPARE_JOB_NOT_ELIGIBLE,
+        ErrorCode.COMPARE_EXTENT_MISMATCH,
     }
 )
 

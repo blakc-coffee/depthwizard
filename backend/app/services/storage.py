@@ -54,6 +54,10 @@ def outputs_prefix(user_id: str, job_id: str) -> str:
     return f"outputs/{user_id}/{job_id}"
 
 
+def compares_prefix(user_id: str, compare_id: str) -> str:
+    return f"compares/{user_id}/{compare_id}"
+
+
 def save_input(user_id: str, job_id: str, file_bytes: bytes, content_type: str) -> str:
     """Uploads the original upload to inputs/{user_id}/{job_id}/original.<ext> (PRD §9.3)."""
     path = input_path(user_id, job_id, content_type)
@@ -65,9 +69,9 @@ def save_input(user_id: str, job_id: str, file_bytes: bytes, content_type: str) 
 
 
 def download_input(path: str) -> Path:
-    """Downloads a stored input to a local temp file for the ML pipeline to
-    read (ml/pipeline.py takes a filesystem path, e.g. for rasterio). Caller
-    owns cleanup of the returned path."""
+    """Downloads any stored object (an upload, or a previous job's artifact
+    when comparing) to a local temp file, since ML code takes filesystem
+    paths. Caller owns cleanup of the returned path."""
     try:
         data = _bucket().download(path)
     except Exception as exc:
@@ -109,8 +113,16 @@ def promote_staged_outputs(user_id: str, job_id: str) -> dict[str, str]:
     outputs/{user_id}/{job_id}/. Call only after re-confirming the job row
     still exists (PRD §8) — this function does the storage move, not the
     existence check."""
-    from_prefix = staging_prefix(user_id, job_id)
-    to_prefix = outputs_prefix(user_id, job_id)
+    return _promote(staging_prefix(user_id, job_id), outputs_prefix(user_id, job_id))
+
+
+def promote_staged_compare_outputs(user_id: str, compare_id: str) -> dict[str, str]:
+    """Same staging-then-promote step for a comparison's artifacts (PRD §9.9),
+    into compares/{user_id}/{compare_id}/."""
+    return _promote(staging_prefix(user_id, compare_id), compares_prefix(user_id, compare_id))
+
+
+def _promote(from_prefix: str, to_prefix: str) -> dict[str, str]:
     bucket = _bucket()
 
     try:

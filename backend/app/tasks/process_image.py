@@ -17,7 +17,9 @@ from app.celery_app import celery_app
 from app.core.errors import NON_RETRYABLE_CODES, ApiException, ErrorCode
 from app.db.session import SessionLocal
 from app.services import storage
+from app.services.compares import CompareService
 from app.services.jobs import JobService
+from app.tasks.compare_images import compare_images
 from integration.pipeline_runner import run_pipeline
 
 logger = logging.getLogger("depthwizard.worker")
@@ -29,6 +31,15 @@ logger = logging.getLogger("depthwizard.worker")
 _BEFORE_PIPELINE = ("loading_input", 5)
 _AFTER_PIPELINE = ("packaging", 85)
 _AFTER_STAGING = ("uploading_results", 95)
+
+
+def _fail_pending_compares(db, job_uuid: uuid.UUID) -> None:
+    """This job failed, so any comparison waiting on it can never run (PRD §9.9)."""
+    CompareService(db).fail_pending_for_job(
+        job_uuid,
+        error_code=ErrorCode.COMPARE_JOB_NOT_ELIGIBLE,
+        error_message="A source job failed, so this comparison cannot run.",
+    )
 
 
 class _PipelineContractError(Exception):
@@ -126,6 +137,10 @@ def process_image(self, job_id: str) -> None:
             },
         )
 
+        # A two-image upload queues a comparison that waits for both jobs.
+        for compare_id in CompareService(db).ready_compare_ids(job_uuid):
+            compare_images.delay(str(compare_id))
+
     except ApiException as exc:
         if exc.code not in NON_RETRYABLE_CODES:
             try:
@@ -133,9 +148,11 @@ def process_image(self, job_id: str) -> None:
             except MaxRetriesExceededError:
                 pass
         jobs.set_failed(job_uuid, error_code=exc.code, error_message=exc.message)
+        _fail_pending_compares(db, job_uuid)
 
     except _PipelineContractError as exc:
         jobs.set_failed(job_uuid, error_code=ErrorCode.ML_INFERENCE_FAILED, error_message=str(exc))
+        _fail_pending_compares(db, job_uuid)
 
     except Exception:  # noqa: BLE001 — top-level task boundary
         # Log the real exception server-side (redacted by core/logging.py's
@@ -149,6 +166,7 @@ def process_image(self, job_id: str) -> None:
             error_code=ErrorCode.ML_INFERENCE_FAILED,
             error_message="Pipeline processing failed unexpectedly.",
         )
+        _fail_pending_compares(db, job_uuid)
 
     finally:
         db.close()
