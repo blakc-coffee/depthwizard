@@ -26,10 +26,11 @@ app = FastAPI(title="DepthWizard API")
 
 settings = get_settings()
 # Added before CORS so CORS wraps it — a browser needs CORS headers on the
-# 413 to read it. The 1 MiB of slack covers multipart framing overhead.
+# 413 to read it. Sized for two images (before + after) per request; the
+# 1 MiB of slack covers multipart framing overhead.
 app.add_middleware(
     MaxBodySizeMiddleware,
-    max_body_bytes=settings.max_upload_bytes + 1024 * 1024,
+    max_body_bytes=2 * settings.max_upload_bytes + 1024 * 1024,
     max_upload_mb=settings.max_upload_mb,
 )
 app.add_middleware(
