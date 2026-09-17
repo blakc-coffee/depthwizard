@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.core.errors import ApiException, ErrorCode
 from app.db.models import Compare, Job
 
 
@@ -31,6 +32,15 @@ class CompareService:
         self.db.add(compare)
         self.db.commit()
         self.db.refresh(compare)
+        return compare
+
+    def get_owned(self, *, compare_id: uuid.UUID, user_id: str) -> Compare:
+        """Ownership-checked read, same codes as JobService (PRD §9.2/§9.9)."""
+        compare = self.db.get(Compare, compare_id)
+        if compare is None:
+            raise ApiException(ErrorCode.JOB_NOT_FOUND, "Comparison not found.")
+        if str(compare.user_id) != str(user_id):
+            raise ApiException(ErrorCode.FORBIDDEN_JOB, "You do not own this comparison.")
         return compare
 
     def get_for_processing(self, compare_id: uuid.UUID) -> Compare | None:

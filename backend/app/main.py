@@ -17,7 +17,7 @@ from app.core.config import get_settings
 from app.core.errors import ApiException, ErrorCode
 from app.core.logging import configure_logging
 from app.core.rate_limit import limiter
-from app.routes import health, jobs, silt_jobs
+from app.routes import compare, health, jobs, silt_jobs
 
 configure_logging()
 logger = logging.getLogger("depthwizard.api")
@@ -46,8 +46,7 @@ app.state.limiter = limiter
 app.include_router(health.router)
 app.include_router(jobs.router)
 app.include_router(silt_jobs.router)
-# routes/compare.py is mounted here once B7 starts (PRD §9.10 B7) — it's a
-# stub today, not a router yet.
+app.include_router(compare.router)
 
 
 @app.exception_handler(ApiException)
