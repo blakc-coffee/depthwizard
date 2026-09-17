@@ -51,7 +51,7 @@ async def create_silt_job(
 
     filename = sanitize_filename(file.filename)
     job_id = uuid.uuid4()
-    stored_path = storage.input_path(user_id, str(job_id), filename)
+    stored_path = storage.input_path(user_id, str(job_id), media_type)
 
     jobs = SiltJobService(db)
     job = jobs.create(
@@ -63,7 +63,7 @@ async def create_silt_job(
     )
 
     try:
-        storage.save_input(user_id, str(job_id), content, filename, media_type)
+        storage.save_input(user_id, str(job_id), content, media_type)
     except ApiException:
         db.delete(job)
         db.commit()

@@ -37,8 +37,13 @@ def _bucket():
     return _get_client().storage.from_(get_settings().storage_bucket)
 
 
-def input_path(user_id: str, job_id: str, filename: str) -> str:
-    return f"inputs/{user_id}/{job_id}/{filename}"
+# Extension comes from the sniffed content type, never the client filename:
+# the ML pipeline only reads GeoTIFF location data from `.tif`/`.tiff` paths.
+_INPUT_EXTENSIONS = {"image/png": ".png", "image/jpeg": ".jpg", "image/tiff": ".tif"}
+
+
+def input_path(user_id: str, job_id: str, media_type: str) -> str:
+    return f"inputs/{user_id}/{job_id}/original{_INPUT_EXTENSIONS[media_type]}"
 
 
 def staging_prefix(user_id: str, job_id: str) -> str:
@@ -49,9 +54,9 @@ def outputs_prefix(user_id: str, job_id: str) -> str:
     return f"outputs/{user_id}/{job_id}"
 
 
-def save_input(user_id: str, job_id: str, file_bytes: bytes, filename: str, content_type: str) -> str:
-    """Uploads the original upload to inputs/{user_id}/{job_id}/{filename}."""
-    path = input_path(user_id, job_id, filename)
+def save_input(user_id: str, job_id: str, file_bytes: bytes, content_type: str) -> str:
+    """Uploads the original upload to inputs/{user_id}/{job_id}/original.<ext> (PRD §9.3)."""
+    path = input_path(user_id, job_id, content_type)
     try:
         _bucket().upload(path, file_bytes, file_options={"content-type": content_type})
     except Exception as exc:
