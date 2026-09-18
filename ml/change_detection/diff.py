@@ -68,19 +68,36 @@ def _load_dsm(path: str) -> np.ndarray:
         raise ValueError(f"could not read DSM {path!r}: {exc}") from exc
 
 
+# Diverging scheme matched to the sidebar's own colors (ResultsPage.tsx uses
+# rose-600 for "Max Height Lost", cyan-600 for "Max Height Gained") so the
+# map and the numbers next to it read as one system, not two color languages.
+_BASE_RGB = np.array([224, 224, 224], dtype=np.float32)  # neutral gray, unchanged
+_LOSS_RGB = np.array([225, 29, 72], dtype=np.float32)  # rose-600
+_GAIN_RGB = np.array([8, 145, 178], dtype=np.float32)  # cyan-600
+
+
 def _render_diff_map(diff: np.ndarray, changed: np.ndarray, max_loss: float, max_gain: float) -> np.ndarray:
-    """RGBA overlay: red = height lost, blue = height gained, transparent
-    below threshold. Intensity scaled per-comparison by its own max_loss/
-    max_gain, not a fixed global scale."""
+    """RGBA overlay: neutral gray = no real change, red = height lost, blue =
+    height gained. Always fully opaque (alpha=255) -- a transparent-below-
+    threshold encoding depends on the consumer honoring alpha (a real bug
+    found in this project's own Three.js viewer: MeshStandardMaterial ignores
+    it by default, rendering "unchanged" as literal black instead of see-
+    through). Intensity scaled per-comparison by its own max_loss/max_gain,
+    with a sqrt boost so small-but-real changes stay visible instead of
+    fading into the background under a plain linear ramp."""
     h, w = diff.shape
-    rgba = np.zeros((h, w, 4), dtype=np.uint8)
 
-    loss_frac = np.clip(-diff / (abs(max_loss) or 1.0), 0, 1)
-    gain_frac = np.clip(diff / (max_gain or 1.0), 0, 1)
+    loss_frac = np.where(changed, np.clip(-diff / (abs(max_loss) or 1.0), 0, 1), 0.0)
+    gain_frac = np.where(changed, np.clip(diff / (max_gain or 1.0), 0, 1), 0.0)
+    loss_frac = np.sqrt(loss_frac)
+    gain_frac = np.sqrt(gain_frac)
 
-    rgba[..., 0] = (loss_frac * 255).astype(np.uint8)
-    rgba[..., 2] = (gain_frac * 255).astype(np.uint8)
-    rgba[..., 3] = np.where(changed, 200, 0).astype(np.uint8)
+    rgb = np.broadcast_to(_BASE_RGB, (h, w, 3)).copy()
+    rgb += loss_frac[..., None] * (_LOSS_RGB - _BASE_RGB)
+    rgb += gain_frac[..., None] * (_GAIN_RGB - _BASE_RGB)
+
+    rgba = np.full((h, w, 4), 255, dtype=np.uint8)
+    rgba[..., :3] = np.clip(rgb, 0, 255).astype(np.uint8)
     return rgba
 
 
