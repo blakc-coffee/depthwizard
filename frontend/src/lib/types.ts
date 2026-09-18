@@ -24,6 +24,11 @@ export interface ApiErrorResponse {
 export interface CreateJobResponse {
   job_id: string;
   status: JobStatus;
+  // Present only when a secondary (comparison) image was uploaded alongside
+  // the primary one — backend/app/schemas/jobs.py's response_model_exclude_none
+  // omits both otherwise.
+  secondary_job_id?: string;
+  compare_id?: string;
 }
 
 export interface JobStatusResponse {
@@ -125,5 +130,42 @@ export interface JobResult {
   artifacts: JobArtifacts;
   metadata: JobMetadata;
   metrics: JobMetrics | null;
+  warnings: string[];
+}
+
+// Comparison (change detection) — backend/app/schemas/compare.py. A separate
+// stage vocabulary from Job's: no depth estimation/calibration happens here,
+// both source DSMs already exist.
+export type CompareStatus = 'queued' | 'processing' | 'completed' | 'failed';
+export type CompareStage = 'loading_inputs' | 'aligning' | 'computing_diff' | 'packaging' | 'uploading_results';
+
+export interface CompareStatusResponse {
+  compare_id: string;
+  status: CompareStatus;
+  stage?: CompareStage | null;
+  progress?: number | null;
+  error?: JobError | null;
+}
+
+export interface CompareArtifacts {
+  diff_map_url: string;
+  before_texture_url: string;
+  after_texture_url: string;
+}
+
+export interface CompareMetadata {
+  height_units: HeightUnits;
+  max_loss: number;
+  max_gain: number;
+  changed_area_fraction: number;
+  threshold: number;
+}
+
+export interface CompareResultResponse {
+  compare_id: string;
+  before_job_id: string;
+  after_job_id: string;
+  artifacts: CompareArtifacts;
+  metadata: CompareMetadata;
   warnings: string[];
 }

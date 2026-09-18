@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { getSampleTerrain } from './sampleTerrainGenerator';
 
 export interface TerrainMeshBuildParams {
   heightmapUrl: string;
@@ -24,24 +23,17 @@ export async function buildTerrainMesh(
   const { maxHeight, isAbsolute } = params;
   const exaggeration = params.verticalExaggeration ?? (isAbsolute ? 2.6 : 2.2);
 
-  let effectiveHeightmapUrl = params.heightmapUrl;
-  let effectiveTextureUrl = params.textureUrl;
+  const effectiveHeightmapUrl = params.heightmapUrl;
+  const effectiveTextureUrl = params.textureUrl;
 
-  // 1. Load heightmap image in browser HTMLImageElement
-  let heightmapImg: HTMLImageElement;
-  try {
-    heightmapImg = await loadImage(effectiveHeightmapUrl);
-    if (!heightmapImg.width || !heightmapImg.height || heightmapImg.width <= 4 || heightmapImg.height <= 4) {
-      const sample = getSampleTerrain('before');
-      effectiveHeightmapUrl = sample.heightmapUrl;
-      effectiveTextureUrl = sample.textureUrl;
-      heightmapImg = await loadImage(effectiveHeightmapUrl);
-    }
-  } catch {
-    const sample = getSampleTerrain('before');
-    effectiveHeightmapUrl = sample.heightmapUrl;
-    effectiveTextureUrl = sample.textureUrl;
-    heightmapImg = await loadImage(effectiveHeightmapUrl);
+  // 1. Load heightmap image in browser HTMLImageElement. No fake-terrain
+  // fallback on failure — a broken/unreachable heightmap is a real error,
+  // and TerrainViewer already has a dedicated error state for exactly this
+  // (silently swapping in a placeholder mountain would mislead the user
+  // into thinking it's their actual job result).
+  const heightmapImg = await loadImage(effectiveHeightmapUrl);
+  if (!heightmapImg.width || !heightmapImg.height || heightmapImg.width <= 4 || heightmapImg.height <= 4) {
+    throw new Error(`Heightmap at ${effectiveHeightmapUrl} decoded to an unusably small image.`);
   }
 
   const imgWidth = heightmapImg.width || 128;
@@ -389,42 +381,29 @@ export async function buildTerrainMesh(
     textureLoader.setCrossOrigin('anonymous');
   }
 
-  let texture: THREE.Texture;
-  try {
-    texture = await new Promise<THREE.Texture>((resolve, reject) => {
-      textureLoader.load(
-        effectiveTextureUrl,
-        (tex) => {
-          if (tex.image && (tex.image.width <= 4 || tex.image.height <= 4)) {
-            const sample = getSampleTerrain('before');
-            textureLoader.load(sample.textureUrl, (sampleTex) => {
-              sampleTex.colorSpace = THREE.SRGBColorSpace;
-              resolve(sampleTex);
-            });
-            return;
-          }
-          tex.colorSpace = THREE.SRGBColorSpace;
-          tex.wrapS = THREE.ClampToEdgeWrapping;
-          tex.wrapT = THREE.ClampToEdgeWrapping;
-          tex.anisotropy = 16;
-          tex.generateMipmaps = true;
-          tex.minFilter = THREE.LinearMipmapLinearFilter;
-          tex.magFilter = THREE.LinearFilter;
-          resolve(tex);
-        },
-        undefined,
-        (err) => reject(err)
-      );
-    });
-  } catch {
-    const sample = getSampleTerrain('before');
-    texture = await new Promise<THREE.Texture>((resolve) => {
-      textureLoader.load(sample.textureUrl, (tex) => {
+  // Same no-fake-fallback rule as the heightmap above — a broken texture
+  // throws and surfaces as a real error, never a silently substituted image.
+  const texture = await new Promise<THREE.Texture>((resolve, reject) => {
+    textureLoader.load(
+      effectiveTextureUrl,
+      (tex) => {
+        if (tex.image && (tex.image.width <= 4 || tex.image.height <= 4)) {
+          reject(new Error(`Texture at ${effectiveTextureUrl} decoded to an unusably small image.`));
+          return;
+        }
         tex.colorSpace = THREE.SRGBColorSpace;
+        tex.wrapS = THREE.ClampToEdgeWrapping;
+        tex.wrapT = THREE.ClampToEdgeWrapping;
+        tex.anisotropy = 16;
+        tex.generateMipmaps = true;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.magFilter = THREE.LinearFilter;
         resolve(tex);
-      });
-    });
-  }
+      },
+      undefined,
+      (err) => reject(err)
+    );
+  });
 
   // Top terrain material: realistic matte satellite texture with DoubleSide rendering
   const terrainMaterial = new THREE.MeshStandardMaterial({

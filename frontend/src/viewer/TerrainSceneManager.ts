@@ -1,10 +1,17 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { buildTerrainMesh, TerrainMeshBuildParams } from './TerrainMeshBuilder';
-import { getSampleTerrain } from './sampleTerrainGenerator';
 
 export type ViewMode = '3d' | '2d_heightmap' | 'confidence' | 'contour';
 export type DisasterMode = 'before' | 'after' | 'difference';
+
+// Real, backend-computed comparison artifacts (GET /api/v1/compare/{id}/result)
+// — 'after' and 'difference' modes only render when this is supplied.
+export interface ComparisonTerrainParams {
+  afterHeightmapUrl: string;
+  afterTextureUrl: string;
+  diffMapUrl: string;
+}
 
 export interface FlightTelemetry {
   altitude: number;
@@ -148,14 +155,16 @@ export class TerrainSceneManager {
 
   public async loadTerrain(
     params: TerrainMeshBuildParams,
-    _confidenceMapUrl?: string | null
+    _confidenceMapUrl?: string | null,
+    comparison?: ComparisonTerrainParams | null
   ): Promise<void> {
     this.clearCurrentMesh();
 
     const exaggeration = params.verticalExaggeration ?? 2.2;
     this.currentExaggeration = exaggeration;
 
-    // 1. Build 'before' primary terrain model
+    // 1. Build 'before' primary terrain model — always real, the job the
+    // viewer was given.
     const beforeResult = await buildTerrainMesh({
       ...params,
       verticalExaggeration: this.currentExaggeration,
@@ -163,29 +172,6 @@ export class TerrainSceneManager {
     this.meshesByMode.set('before', beforeResult.mesh);
     this.texturesByMode.set('before', beforeResult.texture);
 
-    // 2. Build 'after' sample terrain model (massive landslide & collapsed mountain flank)
-    const afterSample = getSampleTerrain('after');
-    const afterResult = await buildTerrainMesh({
-      ...params,
-      heightmapUrl: afterSample.heightmapUrl,
-      textureUrl: afterSample.textureUrl,
-      verticalExaggeration: this.currentExaggeration,
-    });
-    this.meshesByMode.set('after', afterResult.mesh);
-    this.texturesByMode.set('after', afterResult.texture);
-
-    // 3. Build 'difference' sample terrain model (delta displacement elevation + chromatic heatmap)
-    const diffSample = getSampleTerrain('difference');
-    const diffResult = await buildTerrainMesh({
-      ...params,
-      heightmapUrl: diffSample.heightmapUrl,
-      textureUrl: diffSample.textureUrl,
-      verticalExaggeration: this.currentExaggeration,
-    });
-    this.meshesByMode.set('difference', diffResult.mesh);
-    this.texturesByMode.set('difference', diffResult.texture);
-
-    // Texture loader for overlays & slope view
     const textureLoader = new THREE.TextureLoader();
     const loadTex = (url: string): Promise<THREE.Texture> => {
       if (url.startsWith('http')) {
@@ -206,24 +192,63 @@ export class TerrainSceneManager {
       });
     };
 
-    const beforeHmap = await loadTex(params.heightmapUrl || getSampleTerrain('before').heightmapUrl);
-    const afterHmap = await loadTex(afterSample.heightmapUrl);
-    const diffHmap = await loadTex(diffSample.heightmapUrl);
-
+    const beforeHmap = await loadTex(params.heightmapUrl);
     this.heightmapsByMode.set('before', beforeHmap);
-    this.heightmapsByMode.set('after', afterHmap);
-    this.heightmapsByMode.set('difference', diffHmap);
 
-    // Set initial active mesh
+    // 2/3. 'after' and 'difference' only exist when a real comparison was
+    // supplied (both source jobs completed + the diff was actually computed
+    // — see integration/contracts.py::CompareResult). No comparison data ->
+    // no 'after'/'difference' mesh at all; setDisasterMode() no-ops on a
+    // mode with nothing registered, so those tabs simply have nothing to
+    // show rather than silently rendering a fake terrain.
+    if (comparison) {
+      // Real post-disaster terrain, same job artifacts the "after" job
+      // itself produced.
+      const afterResult = await buildTerrainMesh({
+        ...params,
+        heightmapUrl: comparison.afterHeightmapUrl,
+        textureUrl: comparison.afterTextureUrl,
+        verticalExaggeration: this.currentExaggeration,
+      });
+      this.meshesByMode.set('after', afterResult.mesh);
+      this.texturesByMode.set('after', afterResult.texture);
+
+      const afterHmap = await loadTex(comparison.afterHeightmapUrl);
+      this.heightmapsByMode.set('after', afterHmap);
+
+      // Real post-disaster geometry with the real per-pixel diff overlay
+      // (ml/change_detection/diff.py's RGBA loss/gain map) draped on top —
+      // not a fabricated "difference" terrain, the after job's own real
+      // shape colored by the real computed change.
+      const diffResult = await buildTerrainMesh({
+        ...params,
+        heightmapUrl: comparison.afterHeightmapUrl,
+        textureUrl: comparison.diffMapUrl,
+        verticalExaggeration: this.currentExaggeration,
+      });
+      this.meshesByMode.set('difference', diffResult.mesh);
+      this.texturesByMode.set('difference', diffResult.texture);
+      this.heightmapsByMode.set('difference', afterHmap);
+
+      this.afterTexture = afterResult.texture;
+      this.differenceTexture = diffResult.texture;
+    } else {
+      this.afterTexture = null;
+      this.differenceTexture = null;
+    }
+
+    // Set initial active mesh — fall back to 'before' if the requested mode
+    // has no real data registered for it.
     const activeMesh = this.meshesByMode.get(this.currentDisasterMode) || beforeResult.mesh;
+    if (!this.meshesByMode.has(this.currentDisasterMode)) {
+      this.currentDisasterMode = 'before';
+    }
     this.currentMesh = activeMesh;
     this.scene.add(this.currentMesh);
 
     // Backwards-compatibility references
     this.currentTexture = beforeResult.texture;
     this.heightmapTexture = beforeHmap;
-    this.afterTexture = afterResult.texture;
-    this.differenceTexture = diffResult.texture;
 
     this.applyViewMode(this.currentViewMode);
     this.resetView();

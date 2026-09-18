@@ -94,7 +94,11 @@ export const UploadForm = () => {
     try {
       const response = await createJob(selectedPrimaryFile, selectedSecondaryFile);
       if (response && response.job_id) {
-        navigate(`/processing/${encodeURIComponent(response.job_id)}`);
+        const params = new URLSearchParams();
+        if (response.compare_id) params.set('compare', response.compare_id);
+        if (response.secondary_job_id) params.set('secondary', response.secondary_job_id);
+        const query = params.toString();
+        navigate(`/processing/${encodeURIComponent(response.job_id)}${query ? `?${query}` : ''}`);
       } else {
         setErrorMessage('Failed to create processing job. Unexpected server response.');
         setSubmitting(false);

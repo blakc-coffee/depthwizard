@@ -4,6 +4,8 @@ import {
   mockCreateSiltJob,
   mockDeleteJob,
   mockDeleteSiltJob,
+  mockGetCompare,
+  mockGetCompareResult,
   mockGetJob,
   mockGetJobResult,
   mockGetJobs,
@@ -13,6 +15,8 @@ import {
 } from './mockApi';
 import { supabase } from './supabase';
 import {
+  CompareResultResponse,
+  CompareStatusResponse,
   CreateJobResponse,
   CreateSiltJobResponse,
   JobListResponse,
@@ -175,6 +179,48 @@ export async function getJobResult(jobId: string): Promise<JobResult> {
     });
 
     return await handleResponse<JobResult>(response);
+  } catch (err) {
+    throw formatNetworkError(err);
+  }
+}
+
+export async function getCompare(compareId: string): Promise<CompareStatusResponse> {
+  if (isMockApi || compareId.startsWith('mock-')) {
+    return mockGetCompare(compareId);
+  }
+
+  try {
+    const authHeaders = await getAuthHeader();
+    const response = await fetch(buildApiUrl(`/api/v1/compare/${encodeURIComponent(compareId)}`), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        ...authHeaders,
+      },
+    });
+
+    return await handleResponse<CompareStatusResponse>(response);
+  } catch (err) {
+    throw formatNetworkError(err);
+  }
+}
+
+export async function getCompareResult(compareId: string): Promise<CompareResultResponse> {
+  if (isMockApi || compareId.startsWith('mock-')) {
+    return mockGetCompareResult(compareId);
+  }
+
+  try {
+    const authHeaders = await getAuthHeader();
+    const response = await fetch(buildApiUrl(`/api/v1/compare/${encodeURIComponent(compareId)}/result`), {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        ...authHeaders,
+      },
+    });
+
+    return await handleResponse<CompareResultResponse>(response);
   } catch (err) {
     throw formatNetworkError(err);
   }

@@ -1,20 +1,30 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AppShell } from '../components/layout/AppShell';
 import { TerrainViewer } from '../components/viewer/TerrainViewer';
-import { DisasterMode } from '../viewer/TerrainSceneManager';
-import { getJobResult } from '../lib/api';
+import { ComparisonTerrainParams, DisasterMode } from '../viewer/TerrainSceneManager';
+import { useComparePolling } from '../hooks/useComparePolling';
+import { getCompareResult, getJobResult } from '../lib/api';
 import { getFriendlyErrorMessage } from '../lib/errors';
-import { JobResult } from '../lib/types';
+import { CompareResultResponse, JobResult } from '../lib/types';
 
 export const ResultsPage = () => {
   const { jobId } = useParams<{ jobId: string }>();
+  const [searchParams] = useSearchParams();
+  const compareId = searchParams.get('compare') || undefined;
   const navigate = useNavigate();
 
   const [result, setResult] = useState<JobResult | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [disasterMode, setDisasterMode] = useState<DisasterMode>('before');
+
+  // Real comparison data only — no fallback to fabricated "after"/"difference"
+  // terrain. Undefined until the backend-computed compare actually finishes.
+  const { compareData, error: compareError } = useComparePolling(compareId);
+  const [compareResult, setCompareResult] = useState<CompareResultResponse | null>(null);
+  const [afterJobResult, setAfterJobResult] = useState<JobResult | null>(null);
+  const [comparisonLoadError, setComparisonLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     document.title = 'DepthWizard | Terrain Results';
@@ -50,11 +60,59 @@ export const ResultsPage = () => {
     };
   }, [jobId]);
 
+  // Once the compare job itself reports 'completed', fetch its real result
+  // (diff map + metadata) and the "after" job's own real artifacts (its
+  // heightmap isn't part of CompareResultResponse — the compare endpoint
+  // only carries the diff map and both textures, so the after job's own
+  // /result is the real source for its heightmap).
+  useEffect(() => {
+    if (compareData?.status !== 'completed' || !compareId) return;
+
+    let isMounted = true;
+    getCompareResult(compareId)
+      .then((cmp) => {
+        if (!isMounted) return;
+        setCompareResult(cmp);
+        return getJobResult(cmp.after_job_id);
+      })
+      .then((after) => {
+        if (isMounted && after) setAfterJobResult(after);
+      })
+      .catch((err) => {
+        if (isMounted) setComparisonLoadError(getFriendlyErrorMessage(err));
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [compareData?.status, compareId]);
+
   const handleReturnToWorkspace = () => {
     navigate('/app');
   };
 
   const isAbsolute = result?.output_type === 'absolute_dsm';
+
+  const comparisonReady = Boolean(compareResult && afterJobResult);
+  const comparisonFailed = compareData?.status === 'failed' || Boolean(comparisonLoadError) || Boolean(compareError);
+  const comparisonPending = Boolean(compareId) && !comparisonReady && !comparisonFailed;
+
+  const comparisonParams: ComparisonTerrainParams | null =
+    comparisonReady && compareResult && afterJobResult
+      ? {
+          afterHeightmapUrl: afterJobResult.artifacts.heightmap_url,
+          afterTextureUrl: compareResult.artifacts.after_texture_url,
+          diffMapUrl: compareResult.artifacts.diff_map_url,
+        }
+      : null;
+
+  // "After"/"Difference" tabs are only real once the comparison finished —
+  // clicking them before that just stays on 'before' rather than rendering
+  // a mode with nothing registered for it (see TerrainSceneManager.loadTerrain).
+  const handleModeSelect = (mode: DisasterMode) => {
+    if (mode !== 'before' && !comparisonReady) return;
+    setDisasterMode(mode);
+  };
 
   return (
     <AppShell>
@@ -73,7 +131,9 @@ export const ResultsPage = () => {
               )}
             </div>
             <p className="text-sm text-slate-500">
-              Interactive 3D DEM elevation scene with temporal disaster comparison.
+              {compareId
+                ? 'Interactive 3D DEM elevation scene with temporal disaster comparison.'
+                : 'Interactive 3D DEM elevation scene.'}
             </p>
           </div>
 
@@ -91,15 +151,17 @@ export const ResultsPage = () => {
           </div>
         </div>
 
-        {/* 3-Way Disaster Analysis - Continuous Segmented Control (Rule 4: no gaps, no individual borders, active fill) */}
-        {result && !loading && !error && (
+        {/* 3-Way Disaster Analysis tab strip — only rendered when a real
+            comparison was requested (compareId present). A single-image job
+            has no "after"/"difference" to show, so it just shows the terrain. */}
+        {result && !loading && !error && compareId && (
           <div className="w-full bg-slate-100 rounded-lg p-1">
             <div className="flex items-center" role="tablist" aria-label="Disaster Analysis View Mode">
               <button
                 type="button"
                 role="tab"
                 aria-selected={disasterMode === 'before'}
-                onClick={() => setDisasterMode('before')}
+                onClick={() => handleModeSelect('before')}
                 className={`flex-1 py-2 px-3 text-xs sm:text-sm font-medium rounded-md transition-all text-center focus:outline-none ${
                   disasterMode === 'before'
                     ? 'bg-[#5e4cff] text-white shadow-xs font-semibold'
@@ -113,28 +175,30 @@ export const ResultsPage = () => {
                 type="button"
                 role="tab"
                 aria-selected={disasterMode === 'after'}
-                onClick={() => setDisasterMode('after')}
-                className={`flex-1 py-2 px-3 text-xs sm:text-sm font-medium rounded-md transition-all text-center focus:outline-none ${
+                onClick={() => handleModeSelect('after')}
+                disabled={!comparisonReady}
+                className={`flex-1 py-2 px-3 text-xs sm:text-sm font-medium rounded-md transition-all text-center focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed ${
                   disasterMode === 'after'
                     ? 'bg-[#5e4cff] text-white shadow-xs font-semibold'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                After Disaster
+                After Disaster{comparisonPending ? ' · generating…' : comparisonFailed ? ' · unavailable' : ''}
               </button>
 
               <button
                 type="button"
                 role="tab"
                 aria-selected={disasterMode === 'difference'}
-                onClick={() => setDisasterMode('difference')}
-                className={`flex-1 py-2 px-3 text-xs sm:text-sm font-medium rounded-md transition-all text-center focus:outline-none ${
+                onClick={() => handleModeSelect('difference')}
+                disabled={!comparisonReady}
+                className={`flex-1 py-2 px-3 text-xs sm:text-sm font-medium rounded-md transition-all text-center focus:outline-none disabled:opacity-40 disabled:cursor-not-allowed ${
                   disasterMode === 'difference'
                     ? 'bg-[#5e4cff] text-white shadow-xs font-semibold'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                Difference Map
+                Difference Map{comparisonPending ? ' · generating…' : comparisonFailed ? ' · unavailable' : ''}
               </button>
             </div>
           </div>
@@ -192,6 +256,7 @@ export const ResultsPage = () => {
                 outputType={result.output_type}
                 maxHeight={result.metadata.max_height}
                 disasterMode={disasterMode}
+                comparison={comparisonParams}
               />
             </div>
 
@@ -204,58 +269,93 @@ export const ResultsPage = () => {
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
                   {disasterMode === 'difference'
-                    ? 'Temporal delta heatmap & loss assessment'
+                    ? 'Real per-pixel height change, computed from both DSMs'
                     : 'Georeferenced elevation metrics & scale'}
                 </p>
               </div>
 
-
               {/* Statistical Accuracy / Metrics (Rule 1 & 2: Plain label/value pairs, no boxed cards) */}
               {disasterMode === 'difference' ? (
-                <div className="space-y-3.5">
-                  <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider block">
-                    Temporal Delta
-                  </span>
-                  <div className="flex justify-between items-baseline py-0.5">
-                    <span className="text-xs text-slate-600">Structural Loss</span>
-                    <span className="font-mono text-base font-bold text-rose-600">-18.4%</span>
+                comparisonReady && compareResult ? (
+                  <div className="space-y-3.5">
+                    <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider block">
+                      Temporal Delta ({compareResult.metadata.height_units === 'm' ? 'metres' : 'relative units'})
+                    </span>
+                    <div className="flex justify-between items-baseline py-0.5">
+                      <span className="text-xs text-slate-600">Max Height Lost</span>
+                      <span className="font-mono text-base font-bold text-rose-600">
+                        {compareResult.metadata.max_loss.toFixed(2)}
+                        {compareResult.metadata.height_units === 'm' ? 'm' : ''}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-baseline py-0.5">
+                      <span className="text-xs text-slate-600">Max Height Gained</span>
+                      <span className="font-mono text-base font-bold text-cyan-600">
+                        +{compareResult.metadata.max_gain.toFixed(2)}
+                        {compareResult.metadata.height_units === 'm' ? 'm' : ''}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-baseline py-0.5">
+                      <span className="text-xs text-slate-600">Changed Area</span>
+                      <span className="font-mono text-base font-bold text-slate-900">
+                        {(compareResult.metadata.changed_area_fraction * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-baseline py-0.5">
+                      <span className="text-xs text-slate-600">Change Threshold</span>
+                      <span className="font-mono text-xs font-semibold text-slate-900">
+                        {compareResult.metadata.threshold.toFixed(2)}
+                        {compareResult.metadata.height_units === 'm' ? 'm' : ''}
+                      </span>
+                    </div>
+                    {compareResult.warnings.length > 0 && (
+                      <div className="pt-2 space-y-1">
+                        {compareResult.warnings.map((w, i) => (
+                          <p key={i} className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
+                            {w}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div className="flex justify-between items-baseline py-0.5">
-                    <span className="text-xs text-slate-600">Flooded Area</span>
-                    <span className="font-mono text-base font-bold text-cyan-600">12.2%</span>
-                  </div>
-                  <div className="flex justify-between items-baseline py-0.5">
-                    <span className="text-xs text-slate-600">Confidence Score</span>
-                    <span className="font-mono text-base font-bold text-slate-900">0.93</span>
-                  </div>
-                </div>
+                ) : (
+                  <p className="text-xs text-slate-400">
+                    {comparisonFailed
+                      ? 'The comparison could not be computed for these two jobs.'
+                      : 'Comparison is still processing…'}
+                  </p>
+                )
               ) : (
                 <div className="space-y-3.5">
                   <span className="text-[10px] uppercase font-semibold text-slate-400 tracking-wider block">
                     Statistical Accuracy
                   </span>
-                  <div className="flex justify-between items-baseline py-0.5">
-                    <span className="text-xs text-slate-600">RMSE</span>
-                    <span className="font-mono text-base font-bold text-slate-900">
-                      {result.metrics?.rmse != null ? `${result.metrics.rmse.toFixed(2)}m` : '0.19m'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-baseline py-0.5">
-                    <span className="text-xs text-slate-600">MAE</span>
-                    <span className="font-mono text-base font-bold text-slate-900">
-                      {result.metrics?.mae != null ? `${result.metrics.mae.toFixed(2)}m` : '0.14m'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-baseline py-0.5">
-                    <span className="text-xs text-slate-600">Correlation (R²)</span>
-                    <span className="font-mono text-base font-bold text-slate-900">
-                      {result.metrics?.correlation != null ? result.metrics.correlation.toFixed(2) : '0.94'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-baseline py-0.5">
-                    <span className="text-xs text-slate-600">Confidence Score</span>
-                    <span className="font-mono text-base font-bold text-slate-900">0.93</span>
-                  </div>
+                  {result.metrics ? (
+                    <>
+                      <div className="flex justify-between items-baseline py-0.5">
+                        <span className="text-xs text-slate-600">RMSE</span>
+                        <span className="font-mono text-base font-bold text-slate-900">
+                          {result.metrics.rmse.toFixed(2)}m
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-baseline py-0.5">
+                        <span className="text-xs text-slate-600">MAE</span>
+                        <span className="font-mono text-base font-bold text-slate-900">
+                          {result.metrics.mae.toFixed(2)}m
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-baseline py-0.5">
+                        <span className="text-xs text-slate-600">Correlation (R²)</span>
+                        <span className="font-mono text-base font-bold text-slate-900">
+                          {result.metrics.correlation.toFixed(2)}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-xs text-slate-400">
+                      Not available — this scene has no reference elevation data to score against.
+                    </p>
+                  )}
                 </div>
               )}
 

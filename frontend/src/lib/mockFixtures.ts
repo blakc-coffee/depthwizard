@@ -1,8 +1,10 @@
-import { JobResult, JobSummary, SiltJobResult, SiltJobSummary } from './types';
+import { CompareResultResponse, JobResult, JobSummary, SiltJobResult, SiltJobSummary } from './types';
 import { getSampleTerrain } from '../viewer/sampleTerrainGenerator';
 
 // High-relief procedural 3D DEM dataset generated for sample terrain inspection
 const defaultTerrainSample = typeof document !== 'undefined' ? getSampleTerrain('before') : null;
+const afterTerrainSample = typeof document !== 'undefined' ? getSampleTerrain('after') : null;
+const diffTerrainSample = typeof document !== 'undefined' ? getSampleTerrain('difference') : null;
 
 const SAMPLE_TEXTURE_PNG =
   defaultTerrainSample?.textureUrl ||
@@ -107,6 +109,31 @@ export const mockSiltJobResult: SiltJobResult = {
     'Cross-section shape is derived from real per-pixel image variation and the predicted SSC level, not a measured riverbed survey.',
   ],
 };
+
+// Mock comparison result — mock/demo layer only (isMockApi), so procedurally
+// generated "after"/"difference" imagery here is honest: it's explicitly a
+// canned demo, not the real page pretending fabricated data is a live result.
+export const mockCompareResult: CompareResultResponse = {
+  compare_id: 'mock-compare-1234',
+  before_job_id: 'mock-absolute-job-1234',
+  after_job_id: 'mock-after-job-5678',
+  artifacts: {
+    diff_map_url: diffTerrainSample?.textureUrl || SAMPLE_TEXTURE_PNG,
+    before_texture_url: SAMPLE_TEXTURE_PNG,
+    after_texture_url: afterTerrainSample?.textureUrl || SAMPLE_TEXTURE_PNG,
+  },
+  metadata: {
+    height_units: 'm',
+    max_loss: -2.67,
+    max_gain: 5.06,
+    changed_area_fraction: 0.685,
+    threshold: 0.1,
+  },
+  warnings: [],
+};
+
+export const mockAfterHeightmapUrl = afterTerrainSample?.heightmapUrl || SAMPLE_HEIGHTMAP_PNG;
+export const mockAfterTextureUrl = afterTerrainSample?.textureUrl || SAMPLE_TEXTURE_PNG;
 
 export const mockSiltJobsList: SiltJobSummary[] = [
   {

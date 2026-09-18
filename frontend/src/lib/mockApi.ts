@@ -15,6 +15,8 @@ import {
   REAL_DEMO_3_TEXTURE_PNG,
 } from './realSiltDemoFixture3';
 import {
+  CompareResultResponse,
+  CompareStatusResponse,
   CreateJobResponse,
   CreateSiltJobResponse,
   JobListResponse,
@@ -26,6 +28,7 @@ import {
 } from './types';
 import {
   mockAbsoluteJobResult,
+  mockCompareResult,
   mockJobsList,
   mockRelativeJobResult,
   mockSiltJobResult,
@@ -40,6 +43,8 @@ const mockStateStore = new Map<
     isGeoTIFF: boolean;
   }
 >();
+
+const mockCompareStore = new Map<string, { startTime: number }>();
 
 export async function mockCreateJob(file: File, secondFile?: File | null): Promise<CreateJobResponse> {
   if (file.name.toLowerCase().includes('too_large') || secondFile?.name.toLowerCase().includes('too_large')) {
@@ -66,10 +71,47 @@ export async function mockCreateJob(file: File, secondFile?: File | null): Promi
     }));
   }
 
+  if (!secondFile) {
+    return {
+      job_id: jobId,
+      status: 'queued',
+    };
+  }
+
+  const secondaryJobId = `mock-job-after-${Date.now()}`;
+  const compareId = `mock-compare-${Date.now()}`;
+  mockStateStore.set(secondaryJobId, {
+    startTime: Date.now(),
+    filename: secondFile.name,
+    isGeoTIFF: secondFile.name.endsWith('.tif') || secondFile.name.endsWith('.tiff'),
+  });
+  mockCompareStore.set(compareId, { startTime: Date.now() });
+
   return {
     job_id: jobId,
     status: 'queued',
+    secondary_job_id: secondaryJobId,
+    compare_id: compareId,
   };
+}
+
+export async function mockGetCompare(compareId: string): Promise<CompareStatusResponse> {
+  const state = mockCompareStore.get(compareId);
+  const elapsedMs = state ? Date.now() - state.startTime : Infinity;
+
+  // Mirrors mockGetJob's staged timing, offset later since a real compare
+  // only starts once both source jobs finish.
+  if (elapsedMs < 3200) {
+    return { compare_id: compareId, status: 'queued', stage: 'loading_inputs', progress: 10 };
+  }
+  if (elapsedMs < 4200) {
+    return { compare_id: compareId, status: 'processing', stage: 'computing_diff', progress: 55 };
+  }
+  return { compare_id: compareId, status: 'completed', stage: 'uploading_results', progress: 100 };
+}
+
+export async function mockGetCompareResult(compareId: string): Promise<CompareResultResponse> {
+  return { ...mockCompareResult, compare_id: compareId };
 }
 
 export async function mockGetJob(jobId: string): Promise<JobStatusResponse> {

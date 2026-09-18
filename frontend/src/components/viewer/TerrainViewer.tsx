@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { OutputType } from '../../lib/types';
-import { DisasterMode, FlightTelemetry, TerrainSceneManager, ViewMode } from '../../viewer/TerrainSceneManager';
+import {
+  ComparisonTerrainParams,
+  DisasterMode,
+  FlightTelemetry,
+  TerrainSceneManager,
+  ViewMode,
+} from '../../viewer/TerrainSceneManager';
 import { FlightHUD } from './FlightHUD';
 
 interface TerrainViewerProps {
@@ -10,6 +16,7 @@ interface TerrainViewerProps {
   outputType: OutputType;
   maxHeight: number;
   disasterMode?: DisasterMode;
+  comparison?: ComparisonTerrainParams | null;
 }
 
 export const TerrainViewer: React.FC<TerrainViewerProps> = ({
@@ -19,6 +26,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
   outputType,
   maxHeight,
   disasterMode = 'before',
+  comparison,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const managerRef = useRef<TerrainSceneManager | null>(null);
@@ -57,7 +65,8 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
             isAbsolute: outputType === 'absolute_dsm',
             verticalExaggeration: exaggeration,
           },
-          confidenceMapUrl
+          confidenceMapUrl,
+          comparison
         )
         .then(() => {
           if (isSubscribed) {
@@ -86,7 +95,7 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
         managerRef.current = null;
       }
     };
-  }, [heightmapUrl, textureUrl, confidenceMapUrl, maxHeight, outputType]);
+  }, [heightmapUrl, textureUrl, confidenceMapUrl, maxHeight, outputType, comparison]);
 
   useEffect(() => {
     if (disasterMode && managerRef.current) {

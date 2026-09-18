@@ -1,11 +1,12 @@
 import { useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { JobStatus } from '../components/jobs/JobStatus';
 import { AppShell } from '../components/layout/AppShell';
 import { useJobPolling } from '../hooks/useJobPolling';
 
 export const ProcessingPage = () => {
   const { jobId } = useParams<{ jobId: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
   const { jobData, loading, error, refresh } = useJobPolling(jobId);
@@ -16,9 +17,14 @@ export const ProcessingPage = () => {
 
   useEffect(() => {
     if (jobData?.status === 'completed' && jobId) {
-      navigate(`/results/${encodeURIComponent(jobId)}`, { replace: true });
+      // The primary ("before") job is enough to show results — a real
+      // comparison (compare/secondary, if present) runs separately and
+      // ResultsPage polls it on its own, so "After"/"Difference" light up
+      // once it's ready instead of blocking the whole page on it.
+      const query = searchParams.toString();
+      navigate(`/results/${encodeURIComponent(jobId)}${query ? `?${query}` : ''}`, { replace: true });
     }
-  }, [jobData?.status, jobId, navigate]);
+  }, [jobData?.status, jobId, navigate, searchParams]);
 
   const handleReturnToWorkspace = () => {
     navigate('/app');
