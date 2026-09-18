@@ -202,30 +202,6 @@ export const SiltResultsPage = () => {
           </div>
         )}
 
-        {result && result.warnings.length > 0 && (
-          <details className="group border border-slate-200/70 rounded-xl bg-slate-50/50 text-xs transition-colors">
-            <summary className="flex items-center justify-between cursor-pointer px-4 py-2.5 font-medium text-slate-500 hover:text-slate-800 select-none">
-              <span>Notes & Limitations ({result.warnings.length})</span>
-              <svg
-                className="w-4 h-4 text-slate-400 transition-transform duration-200 group-open:rotate-180"
-                xmlns="http://www.w3.org/2000/svg"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <polyline points="6 9 12 15 18 9" />
-              </svg>
-            </summary>
-            <div className="px-4 pb-3 pt-1 space-y-2 border-t border-slate-200/60 text-slate-600 bg-white rounded-b-xl">
-              {result.warnings.map((w, i) => (
-                <p key={i} className="leading-relaxed">{w}</p>
-              ))}
-            </div>
-          </details>
-        )}
       </div>
     </AppShell>
   );
