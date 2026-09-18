@@ -37,13 +37,22 @@ __pycache__/
 *.pyc
 .pytest_cache/
 
-# ML model weights/checkpoints — except the production river-silt
-# regressor, which the worker actually needs at runtime (unlike the other
-# checkpoints here, which are experiment artifacts, not load-bearing).
-# `ml/models/*`, not `ml/models/` — excluding the directory itself means
-# git never looks inside it, so a negation below can't re-include anything.
+# ML model weights/checkpoints — except the production regressors the
+# worker actually loads at runtime (unlike the other checkpoints here,
+# which are experiment artifacts, not load-bearing). `ml/models/*`, not
+# `ml/models/` — excluding the directory itself means git never looks
+# inside it, so a negation below can't re-include anything.
+#
+# regressor_v1.pt (terrain calibration, pipeline.py's CHECKPOINT_PATH) was
+# missed when this carve-out was first added — same bug class as the two
+# real production incidents this exact rule already caused: koppen.zip
+# (silt jobs 404ing) and river_silt_regressor_xgb_v1.json itself (every
+# silt job failing) — both fixed only after they broke in prod. Without
+# this checkpoint, calibrate_scene() never runs and every terrain job
+# silently falls back to relative_dsm regardless of SRTM availability.
 ml/models/*
 !ml/models/river_silt_regressor_xgb_v1.json
+!ml/models/regressor_v1.pt
 .cache/
 
 # Derived sanity-test imagery and cached raster tiles (regenerable, keeps binary bloat out of git)

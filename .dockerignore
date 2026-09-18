@@ -24,12 +24,16 @@ __pycache__/
 
 # Neither image needs the frontend. Most ml/models/ weights are experiment
 # artifacts the worker doesn't need either — except the production
-# river-silt regressor, which it loads at runtime for every silt job.
+# regressors it loads at runtime: river-silt for every silt job, and
+# regressor_v1.pt (terrain calibration) for every terrain job. The latter
+# was missed here originally — without it in the image, calibrate_scene()
+# never runs and every terrain job silently falls back to relative_dsm.
 # `ml/models/*`, not `ml/models/` — excluding the directory itself means
 # Docker never looks inside it, so a negation below can't re-include anything.
 frontend/
 ml/models/*
 !ml/models/river_silt_regressor_xgb_v1.json
+!ml/models/regressor_v1.pt
 node_modules/
 
 # Real bug found 2026-09-17: none of these were dockerignored, even though
