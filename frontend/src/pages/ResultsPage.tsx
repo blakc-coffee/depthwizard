@@ -91,8 +91,6 @@ export const ResultsPage = () => {
     navigate('/app');
   };
 
-  const isAbsolute = result?.output_type === 'absolute_dsm';
-
   const comparisonReady = Boolean(compareResult && afterJobResult);
   const comparisonFailed = compareData?.status === 'failed' || Boolean(comparisonLoadError) || Boolean(compareError);
   const comparisonPending = Boolean(compareId) && !comparisonReady && !comparisonFailed;
@@ -124,11 +122,6 @@ export const ResultsPage = () => {
               <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-slate-900 font-heading">
                 Terrain Reconstruction Results
               </h1>
-              {result && (
-                <span className="text-xs px-2.5 py-0.5 rounded-md font-medium bg-slate-100 text-slate-700">
-                  {isAbsolute ? `Absolute DSM (${result.metadata.min_height.toFixed(1)} – ${result.metadata.max_height.toFixed(1)} m)` : 'Relative DSM'}
-                </span>
-              )}
             </div>
             <p className="text-sm text-slate-500">
               {compareId
