@@ -55,7 +55,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-    command: python -m celery -A app.celery_app worker --loglevel=info -Q image_processing
+    command: python -m celery -A app.celery_app worker --loglevel=info -Q image_processing --concurrency=1
 
 volumes:
   postgres_data:
