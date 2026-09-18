@@ -378,6 +378,20 @@ export const ResultsPage = () => {
                 </div>
               </div>
 
+              {/* Why relative/absolute, straight from the pipeline — the real
+                  reason behind the "Relative DSM" badge above (no geo-metadata,
+                  SRTM coverage too sparse, scale anchor not grounded, etc.),
+                  not previously surfaced anywhere in this UI. */}
+              {result.warnings.length > 0 && (
+                <div className="pt-2 space-y-1">
+                  {result.warnings.map((w, i) => (
+                    <p key={i} className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
+                      {w}
+                    </p>
+                  ))}
+                </div>
+              )}
+
               {/* Action Button (Rule 7: Accent indigo on interactive action) */}
               <div className="pt-2">
                 {result.artifacts.dsm_url ? (
