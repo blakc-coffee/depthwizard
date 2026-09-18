@@ -5,9 +5,8 @@ export const Header = () => {
   const { user, signOut } = useAuth();
   const location = useLocation();
 
-  const isAuthPage = location.pathname === '/login';
-  const queryParams = new URLSearchParams(location.search);
-  const isSiltOnLogin = isAuthPage && queryParams.get('mode') === 'silt';
+  const isInputPage = location.pathname === '/app' || location.pathname === '/silt';
+  const isSilt = location.pathname === '/silt';
 
   return (
     <header className="w-full bg-white py-4 mb-4 sm:mb-8 flex-shrink-0">
@@ -25,13 +24,13 @@ export const Header = () => {
           </span>
         </NavLink>
 
-        {/* Use-case switcher — Exists strictly on the login page */}
-        {isAuthPage && (
+        {/* Use-case switcher — Exists strictly on input pages (/app, /silt) */}
+        {isInputPage && (
           <div className="flex items-center bg-[#f4f5f7] rounded-md p-1 text-xs font-medium space-x-1">
             <NavLink
-              to="/login?mode=terrain"
+              to="/app"
               className={`px-3 py-1.5 rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5e4cff] ${
-                !isSiltOnLogin
+                !isSilt
                   ? 'bg-[#5e4cff] text-white shadow-xs font-medium'
                   : 'text-[#666d80] hover:text-[#36394a] hover:bg-black/5 font-medium'
               }`}
@@ -39,9 +38,9 @@ export const Header = () => {
               Terrain
             </NavLink>
             <NavLink
-              to="/login?mode=silt"
+              to="/silt"
               className={`px-3 py-1.5 rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#5e4cff] ${
-                isSiltOnLogin
+                isSilt
                   ? 'bg-[#5e4cff] text-white shadow-xs font-medium'
                   : 'text-[#666d80] hover:text-[#36394a] hover:bg-black/5 font-medium'
               }`}
