@@ -14,6 +14,7 @@ import {
   REAL_DEMO_3_HEATMAP_PNG,
   REAL_DEMO_3_TEXTURE_PNG,
 } from './realSiltDemoFixture3';
+import { analyzeSiltImage, SiltAnalysisResult } from './clientSiltPipeline';
 import {
   CompareResultResponse,
   CompareStatusResponse,
@@ -276,14 +277,47 @@ export async function mockDeleteJob(jobId: string): Promise<void> {
 // River-silt mock endpoints — simpler than the terrain mocks above (one
 // output shape, no GeoTIFF/relative branching) since the real pipeline
 // itself only has one placeholder path right now (ml/river_silt_pipeline.py).
-const mockSiltStateStore = new Map<string, { startTime: number }>();
+const mockSiltStateStore = new Map<
+  string,
+  {
+    startTime: number;
+    previewUrl?: string;
+    analysis?: SiltAnalysisResult;
+  }
+>();
 
 export async function mockCreateSiltJob(file: File): Promise<CreateSiltJobResponse> {
   if (file.name.toLowerCase().includes('too_large')) {
     throw new ApiException(KnownErrorCodes.FILE_TOO_LARGE, 'File exceeds the maximum upload limit.');
   }
   const jobId = `mock-silt-job-${Date.now()}`;
-  mockSiltStateStore.set(jobId, { startTime: Date.now() });
+  let previewUrl: string | undefined;
+  if (typeof window !== 'undefined' && typeof URL !== 'undefined' && URL.createObjectURL) {
+    try {
+      previewUrl = URL.createObjectURL(file);
+      sessionStorage.setItem(`depthwizard_silt_preview_${jobId}`, previewUrl);
+    } catch {
+      // ignore
+    }
+  }
+
+  mockSiltStateStore.set(jobId, { startTime: Date.now(), previewUrl });
+
+  // Run dynamic client-side optical analysis on the user's actual image
+  if (typeof window !== 'undefined') {
+    analyzeSiltImage(file).then((analysis) => {
+      const state = mockSiltStateStore.get(jobId);
+      if (state) {
+        state.analysis = analysis;
+      }
+      try {
+        sessionStorage.setItem(`depthwizard_silt_analysis_${jobId}`, JSON.stringify(analysis));
+      } catch {
+        // ignore quota limits
+      }
+    });
+  }
+
   return { job_id: jobId, status: 'queued' };
 }
 
@@ -303,9 +337,7 @@ export async function mockGetSiltJob(jobId: string): Promise<SiltJobStatusRespon
 }
 
 export async function mockGetSiltJobResult(jobId: string): Promise<SiltJobResult> {
-  // Dev-only: real pipeline output on test_input_river_silt.tif, not the
-  // 1x1 placeholder images — visit /silt-results/real-demo to sanity-check
-  // actual heatmap/cross-section rendering. See realSiltDemoFixture.ts.
+  // Curated demo fixtures for testing pre-calculated scenes
   if (jobId === 'real-demo') {
     return {
       ...mockSiltJobResult,
@@ -348,7 +380,68 @@ export async function mockGetSiltJobResult(jobId: string): Promise<SiltJobResult
       cross_section_profile: REAL_DEMO_3_CROSS_SECTION,
     };
   }
-  return { ...mockSiltJobResult, job_id: jobId };
+
+  const storedPreview = typeof window !== 'undefined' ? sessionStorage.getItem(`depthwizard_silt_preview_${jobId}`) : null;
+  const inMemoryState = mockSiltStateStore.get(jobId);
+  const textureUrl = storedPreview || inMemoryState?.previewUrl || REAL_DEMO_TEXTURE_PNG;
+
+  // Retrieve cached or in-memory analysis computed from the user's uploaded image
+  const storedAnalysisJson = typeof window !== 'undefined' ? sessionStorage.getItem(`depthwizard_silt_analysis_${jobId}`) : null;
+  let analysis = inMemoryState?.analysis;
+  if (!analysis && storedAnalysisJson) {
+    try {
+      analysis = JSON.parse(storedAnalysisJson);
+    } catch {
+      // ignore
+    }
+  }
+
+  if (analysis) {
+    return {
+      ...mockSiltJobResult,
+      job_id: jobId,
+      predicted_ssc_mg_l: analysis.predictedSscMgL,
+      dredging_level: analysis.dredgingLevel,
+      dredging_label: analysis.dredgingLabel,
+      artifacts: {
+        texture_url: textureUrl,
+        heatmap_url: analysis.heatmapUrl || REAL_DEMO_HEATMAP_PNG,
+      },
+      cross_section_profile: analysis.crossSectionProfile,
+    };
+  }
+
+  // If not yet analyzed but we have an image URL, perform live analysis on the fly
+  if (textureUrl && textureUrl !== REAL_DEMO_TEXTURE_PNG && typeof window !== 'undefined') {
+    try {
+      const liveAnalysis = await analyzeSiltImage(textureUrl);
+      if (inMemoryState) inMemoryState.analysis = liveAnalysis;
+      return {
+        ...mockSiltJobResult,
+        job_id: jobId,
+        predicted_ssc_mg_l: liveAnalysis.predictedSscMgL,
+        dredging_level: liveAnalysis.dredgingLevel,
+        dredging_label: liveAnalysis.dredgingLabel,
+        artifacts: {
+          texture_url: textureUrl,
+          heatmap_url: liveAnalysis.heatmapUrl || REAL_DEMO_HEATMAP_PNG,
+        },
+        cross_section_profile: liveAnalysis.crossSectionProfile,
+      };
+    } catch {
+      // fall through to default
+    }
+  }
+
+  return {
+    ...mockSiltJobResult,
+    job_id: jobId,
+    artifacts: {
+      texture_url: textureUrl,
+      heatmap_url: REAL_DEMO_HEATMAP_PNG,
+    },
+    cross_section_profile: REAL_DEMO_CROSS_SECTION,
+  };
 }
 
 export async function mockGetSiltJobs(): Promise<SiltJobListResponse> {

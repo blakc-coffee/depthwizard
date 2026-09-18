@@ -15,6 +15,7 @@ export const SiltResultsPage = () => {
   const [result, setResult] = useState<SiltJobResult | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [activeImageTab, setActiveImageTab] = useState<'reach' | 'heatmap'>('reach');
 
   useEffect(() => {
     document.title = 'DepthWizard | Silt Results';
@@ -129,14 +130,44 @@ export const SiltResultsPage = () => {
             {/* Side panel: source photo (reference only) + stats + dredging */}
             <div className="w-full flex flex-col gap-4">
               <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
-                <h4 className="text-xs font-semibold text-slate-900 font-heading mb-2">Aerial Reach Imagery</h4>
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-xs font-semibold text-slate-900 font-heading">
+                    {activeImageTab === 'reach' ? 'Aerial Reach Imagery' : 'Turbidity Heatmap'}
+                  </h4>
+                  {result.artifacts.heatmap_url && (
+                    <div className="flex items-center bg-slate-100 p-0.5 rounded-lg text-[11px] font-medium text-slate-600">
+                      <button
+                        type="button"
+                        onClick={() => setActiveImageTab('reach')}
+                        className={`px-2 py-0.5 rounded-md transition-colors ${
+                          activeImageTab === 'reach'
+                            ? 'bg-white text-slate-900 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-900'
+                        }`}
+                      >
+                        Satellite
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setActiveImageTab('heatmap')}
+                        className={`px-2 py-0.5 rounded-md transition-colors ${
+                          activeImageTab === 'heatmap'
+                            ? 'bg-white text-slate-900 shadow-xs'
+                            : 'text-slate-500 hover:text-slate-900'
+                        }`}
+                      >
+                        Heatmap
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <img
-                  src={result.artifacts.texture_url}
-                  alt="Uploaded river reach"
+                  src={activeImageTab === 'reach' ? result.artifacts.texture_url : result.artifacts.heatmap_url}
+                  alt={activeImageTab === 'reach' ? 'Uploaded river reach' : 'Computed turbidity heatmap'}
                   className="w-full h-44 rounded-lg border border-slate-200/80 object-cover"
                 />
                 <span className="text-[11px] text-slate-400 mt-1.5 block">
-                  Sentinel-2 L2A Overhead Reach
+                  {activeImageTab === 'reach' ? 'Sentinel-2 L2A Overhead Reach' : 'NDTI Silt Density Gradient'}
                 </span>
               </div>
 
