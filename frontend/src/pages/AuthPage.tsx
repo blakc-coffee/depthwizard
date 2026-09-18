@@ -1,15 +1,18 @@
 import { useEffect } from 'react';
-import { Navigate } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router-dom';
 import { LoginForm } from '../components/auth/LoginForm';
 import { Header } from '../components/layout/Header';
 import { useAuth } from '../hooks/useAuth';
 
 export const AuthPage = () => {
   const { user, loading } = useAuth();
+  const location = useLocation();
+  const queryParams = new URLSearchParams(location.search);
+  const isSilt = queryParams.get('mode') === 'silt';
 
   useEffect(() => {
-    document.title = 'DepthWizard | Sign In';
-  }, []);
+    document.title = isSilt ? 'DepthWizard | River Silt Sign In' : 'DepthWizard | Terrain Sign In';
+  }, [isSilt]);
 
   if (loading) {
     return (
@@ -43,23 +46,37 @@ export const AuthPage = () => {
   }
 
   if (user) {
-    return <Navigate to="/app" replace />;
+    return <Navigate to={isSilt ? '/silt' : '/app'} replace />;
   }
 
   return (
     <div className="relative min-h-screen bg-white text-[#36394a] font-sans flex flex-col justify-between antialiased w-full overflow-x-hidden">
       <div className="w-full px-6 sm:px-10 lg:px-12 py-4 flex flex-col flex-1 box-border">
-        {/* Seamless Header (DEPTHWIZARD + Sign In only on auth page) */}
+        {/* Seamless Header (DEPTHWIZARD + Terrain/River Silt tool selection on auth page) */}
         <Header />
 
         {/* Top-Anchored Left-Aligned Hero Section */}
         <div className="pt-2 sm:pt-6 lg:pt-8 pb-16 w-full max-w-2xl flex flex-col items-start space-y-6 lg:space-y-8">
           <h1 className="text-[36px] sm:text-[44px] lg:text-[52px] font-semibold tracking-tight text-[#36394a] font-heading leading-[1.12]">
-            Reconstruct terrain from
-            <br className="hidden sm:inline" /> a single image.
+            {isSilt ? (
+              <>
+                Estimate river silt
+                <br className="hidden sm:inline" /> & dredging metrics.
+              </>
+            ) : (
+              <>
+                Reconstruct terrain from
+                <br className="hidden sm:inline" /> a single image.
+              </>
+            )}
           </h1>
+          <p className="text-sm text-[#666d80] max-w-lg">
+            {isSilt
+              ? 'Multispectral satellite sediment tracking, suspended sediment concentration (SSC), and dredging volume prioritization.'
+              : 'Single-view depth estimation with SRTM elevation calibration for disaster response and topographic analysis.'}
+          </p>
 
-          <LoginForm />
+          <LoginForm defaultDestination={isSilt ? '/silt' : '/app'} />
         </div>
       </div>
 

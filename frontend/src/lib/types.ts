@@ -27,8 +27,8 @@ export interface CreateJobResponse {
   // Present only when a secondary (comparison) image was uploaded alongside
   // the primary one — backend/app/schemas/jobs.py's response_model_exclude_none
   // omits both otherwise.
-  secondary_job_id?: string;
-  compare_id?: string;
+  secondary_job_id?: string | null;
+  compare_id?: string | null;
 }
 
 export interface JobStatusResponse {
@@ -114,6 +114,9 @@ export interface JobMetadata {
   max_height: number;
   width: number;
   height: number;
+  has_comparison?: boolean;
+  compare_id?: string | null;
+  secondary_job_id?: string | null;
   [key: string]: unknown;
 }
 

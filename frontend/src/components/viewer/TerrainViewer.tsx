@@ -123,15 +123,15 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
       {/* Tactical Flight Telemetry HUD (top-left) */}
       <FlightHUD telemetry={telemetry} />
 
-      {/* Floating Center View Mode Pill Switcher (Normal / Slope) - Continuous Segmented Pill */}
-      <div className="absolute top-3.5 left-1/2 -translate-x-1/2 z-10 flex items-center bg-white/90 backdrop-blur-md border border-slate-200/80 rounded-full p-1 shadow-sm">
+      {/* Floating Center View Mode Switcher (Normal / Slope) - Matching Terrain/River Silt button style */}
+      <div className="absolute top-3.5 left-1/2 -translate-x-1/2 z-10 flex items-center bg-[#f4f5f7] rounded-md p-1 text-xs font-medium space-x-1 shadow-xs">
         <button
           type="button"
           onClick={() => handleModeChange('3d')}
-          className={`px-3.5 py-1 text-xs font-medium rounded-full transition-all focus:outline-none ${
+          className={`px-3 py-1.5 rounded-md transition-colors focus:outline-none ${
             activeMode === '3d'
-              ? 'bg-[#5e4cff] text-white shadow-xs font-semibold'
-              : 'text-slate-600 hover:text-slate-900 font-medium'
+              ? 'bg-[#5e4cff] text-white shadow-xs font-medium'
+              : 'text-[#666d80] hover:text-[#36394a] hover:bg-black/5 font-medium'
           }`}
         >
           Normal
@@ -139,10 +139,10 @@ export const TerrainViewer: React.FC<TerrainViewerProps> = ({
         <button
           type="button"
           onClick={() => handleModeChange('2d_heightmap')}
-          className={`px-3.5 py-1 text-xs font-medium rounded-full transition-all focus:outline-none ${
+          className={`px-3 py-1.5 rounded-md transition-colors focus:outline-none ${
             activeMode === '2d_heightmap'
-              ? 'bg-[#5e4cff] text-white shadow-xs font-semibold'
-              : 'text-slate-600 hover:text-slate-900 font-medium'
+              ? 'bg-[#5e4cff] text-white shadow-xs font-medium'
+              : 'text-[#666d80] hover:text-[#36394a] hover:bg-black/5 font-medium'
           }`}
         >
           Slope

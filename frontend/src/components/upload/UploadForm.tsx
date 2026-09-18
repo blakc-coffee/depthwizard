@@ -94,6 +94,16 @@ export const UploadForm = () => {
     try {
       const response = await createJob(selectedPrimaryFile, selectedSecondaryFile);
       if (response && response.job_id) {
+        if (typeof window !== 'undefined') {
+          const isComparison = Boolean(selectedSecondaryFile || response.compare_id || response.secondary_job_id);
+          sessionStorage.setItem(`depthwizard_is_comparison_${response.job_id}`, isComparison ? 'true' : 'false');
+          if (response.compare_id) {
+            sessionStorage.setItem(`depthwizard_compare_id_${response.job_id}`, response.compare_id);
+          }
+        }
+        // Query params are the real (compare/secondary) source of truth for
+        // ResultsPage's polling — sessionStorage above is only a same-tab
+        // fallback for tab-visibility if someone navigates back without them.
         const params = new URLSearchParams();
         if (response.compare_id) params.set('compare', response.compare_id);
         if (response.secondary_job_id) params.set('secondary', response.secondary_job_id);
